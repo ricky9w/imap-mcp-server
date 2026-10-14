@@ -67,6 +67,13 @@ working in this repository.
   live in `public/js/admin.js`, which builds the DOM with `createElement` /
   `textContent` only (token names and audit details are agent-controlled);
   `tests/admin-ui-static.test.ts` fails on any HTML sink there.
+- **Agent CLI** (`src/cli/`, bin `imap-mcp-cli` → `dist/cli.js`) — an MCP
+  client of `serve`'s `/mcp`, so auth, permissions and audit are identical.
+  The token comes from `IMAP_MCP_TOKEN` only (never a flag); stdout is the
+  tool's JSON, errors are JSON on stderr; exit codes 0 ok / 1 tool error or
+  `success:false` / 2 usage / 3 unauthorized or not permitted / 4 network.
+  `index.ts` exports `runCli()` (no side effects); `main.ts` is the entry.
+  Aliases live in `commands.ts`; `tests/cli.test.ts` checks their tools exist.
 - **Types** — `src/types/index.ts`.
 - All tools return **JSON-formatted text** content; errors are returned as
   structured JSON where practical rather than thrown for caller-facing failures.
@@ -84,7 +91,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 562 tests).
+touch `src/`. Keep the suite green (currently 573 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
