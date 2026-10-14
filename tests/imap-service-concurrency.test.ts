@@ -137,4 +137,17 @@ describe('ImapService under overlapping tool calls', () => {
     expect(Array.from(box.flags)).toEqual(['\\Seen']);
     expect(client.mailboxOpenCalls).toBe(0);
   });
+
+  it('disconnectAll logs out of every account and forgets the connections', async () => {
+    const other: ImapAccount = { ...account, id: 'acc2', name: 'Other' };
+    service.setAccountManager({ getAccount: (id: string) => (id === 'acc2' ? other : account) } as any);
+    await service.listFolders('acc');
+    await service.listFolders('acc2');
+
+    await service.disconnectAll();
+
+    expect(instances.map((i) => i.loggedOut)).toEqual([true, true]);
+    await service.listFolders('acc');
+    expect(instances).toHaveLength(3);
+  });
 });

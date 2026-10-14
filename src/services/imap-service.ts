@@ -330,6 +330,11 @@ export class ImapService {
     }
   }
 
+  /** Log out of every account, e.g. when a long-running server shuts down. */
+  async disconnectAll(): Promise<void> {
+    await Promise.all([...this.connections.keys()].map(accountId => this.disconnect(accountId)));
+  }
+
   private async ensureConnected(accountId: string): Promise<ImapFlow> {
     let state = this.connections.get(accountId);
     if (!state) {
