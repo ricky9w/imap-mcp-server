@@ -50,4 +50,15 @@ describe('ImapService TLS host for local bridges', () => {
     expect(constructorOptions[0].host).toBe('127.0.0.1');
     expect(constructorOptions[0].tls?.host).toBe('127.0.0.1');
   });
+
+  // connect() and testConnection() share one client factory, so testing an
+  // account exercises exactly the options a real connection uses.
+  it('builds testConnection clients with the same options as connect', async () => {
+    const acct: ImapAccount = { ...account('127.0.0.1'), allowStartTLS: false, loginMethod: 'LOGIN' };
+    await service.connect(acct);
+    await service.testConnection(acct);
+
+    expect(constructorOptions).toHaveLength(2);
+    expect(constructorOptions[1]).toEqual(constructorOptions[0]);
+  });
 });

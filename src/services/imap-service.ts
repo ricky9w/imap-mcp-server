@@ -183,17 +183,13 @@ export class ImapService {
     this.accountManager = accountManager;
   }
 
-  async connect(account: ImapAccount): Promise<void> {
-    const existing = this.connections.get(account.id);
-    if (existing?.isConnected) {
-      return;
-    }
-
-    // Fail with the missing variable name rather than dialing out with a blank
-    // credential and getting back an indistinguishable "AUTHENTICATE failed".
-    assertCredentialsResolved(account, 'imap');
-
-    const client = new ImapFlow({
+  /**
+   * The single place an ImapFlow is configured, so connect() and
+   * testConnection() cannot drift apart. Per-account or provider-specific
+   * client options belong here as well.
+   */
+  private createClient(account: ImapAccount): ImapFlow {
+    return new ImapFlow({
       host: account.host,
       port: account.port,
       secure: account.tls,
@@ -217,6 +213,19 @@ export class ImapService {
       },
       logger: false,
     });
+  }
+
+  async connect(account: ImapAccount): Promise<void> {
+    const existing = this.connections.get(account.id);
+    if (existing?.isConnected) {
+      return;
+    }
+
+    // Fail with the missing variable name rather than dialing out with a blank
+    // credential and getting back an indistinguishable "AUTHENTICATE failed".
+    assertCredentialsResolved(account, 'imap');
+
+    const client = this.createClient(account);
 
     // Set up event handlers for connection management
     client.on('error', (err) => {
@@ -1763,21 +1772,7 @@ export class ImapService {
   }
 
   async testConnection(account: ImapAccount): Promise<{ success: boolean; folders?: string[]; messageCount?: number; error?: string }> {
-    const testClient = new ImapFlow({
-      host: account.host,
-      port: account.port,
-      secure: account.tls,
-      // Validate the certificate against the host we actually dial; see connect().
-      tls: { host: account.host },
-      // See connect() — allowStartTLS: false opts out of the opportunistic upgrade.
-      ...(account.allowStartTLS === false ? { doSTARTTLS: false } : {}),
-      auth: {
-        user: account.user,
-        pass: account.password,
-        loginMethod: account.loginMethod,
-      },
-      logger: false,
-    });
+    const testClient = this.createClient(account);
 
     try {
       await testClient.connect();
