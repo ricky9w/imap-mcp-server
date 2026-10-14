@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The bundled setup wizard no longer starts a second wizard. The entry-point check at the bottom of `src/web/server.ts` compared `import.meta.url` with `argv[1]`; once esbuild inlined the file into `dist/setup.js`, it matched there too whenever the bundle was started by its real path (`node dist/setup.js`, the Windows npm shims). A second wizard then came up on `127.0.0.1:$PORT` (default 3000) — without the access token when `--host` was used. The standalone entry moved to `src/web/main.ts`. Tests in `tests/web-server-entry.test.ts`.
+
 ## [2.2.1] - 2026-10-13
 
 ### Security

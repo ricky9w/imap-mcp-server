@@ -34,9 +34,10 @@ await esbuild.build({
   banner: shebang,
 });
 
-// Build web server entry point
+// Build web server entry point (src/web/main.ts; server.ts itself has no side
+// effects so it can be inlined into other entries)
 await esbuild.build({
-  entryPoints: ['src/web/server.ts'],
+  entryPoints: ['src/web/main.ts'],
   bundle: true,
   platform: 'node',
   format: 'esm',
