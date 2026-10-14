@@ -63,7 +63,10 @@ working in this repository.
   `server.ts` must stay free of import side effects — esbuild inlines it into
   other entries; the standalone entry (`npm run web`) is `src/web/main.ts`.
   With `admin` deps (passed by `serve`) it runs in admin mode: the admin token
-  is always required, and it adds the token, catalog and audit API.
+  is always required, and it adds the token, catalog and audit API. Its views
+  live in `public/js/admin.js`, which builds the DOM with `createElement` /
+  `textContent` only (token names and audit details are agent-controlled);
+  `tests/admin-ui-static.test.ts` fails on any HTML sink there.
 - **Types** — `src/types/index.ts`.
 - All tools return **JSON-formatted text** content; errors are returned as
   structured JSON where practical rather than thrown for caller-facing failures.
@@ -81,7 +84,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 556 tests).
+touch `src/`. Keep the suite green (currently 562 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
