@@ -6,9 +6,30 @@ control**.
 
 ## Security model
 
-- **Local execution.** The server runs entirely on your own machine as a local
-  MCP process (stdio). It is not a hosted service and does not require any
-  account with this project.
+- **Local execution.** By default the server runs on your own machine as a
+  local MCP process (stdio). It is not a hosted service and does not require
+  any account with this project.
+- **Remote mode (optional).** `imap-mcp-server serve` offers the tools over
+  plain HTTP on one `host:port` (default `127.0.0.1:8765`).
+  - **Exposure is yours to secure.** The server provides no TLS; how it is
+    exposed beyond that address, and with what TLS, is up to you.
+  - **Agent tokens** (`imcp_…`) authenticate `POST /mcp`. Only their SHA-256
+    is stored (`~/.imap-mcp/tokens.json`, 0600). Each token grants an
+    explicit tool list, and revoking it takes effect on the next request.
+  - **Never grantable over HTTP:** the account tools, which could point stored
+    credentials at another host, and `imap_disconnect`.
+  - **The admin token** protects every other path, i.e. the admin UI and API.
+    It comes from `IMAP_MCP_WIZARD_TOKEN` or `~/.imap-mcp/admin-token` (0600)
+    and is never printed. The two kinds of token are not interchangeable.
+  - **Audit log:** every tool call, failed authentication, token change and
+    account change goes to `~/.imap-mcp/audit.log` (0600). Entries hold
+    identifiers and full outbound recipient lists, never message text,
+    subjects, credentials or tokens.
+- **Prompt injection.** Email is written by third parties. A crafted message
+  can try to make an agent forward mail or act on its behalf. Tokens are
+  least-privilege by design: prefer presets without sending (`assistant`
+  drafts, you send). Agents should load `skills/imap-mail/SKILL.md`, which
+  treats all email content as untrusted.
 - **Credential storage.** IMAP/SMTP credentials are stored encrypted with
   **AES-256-CBC** in `~/.imap-mcp/accounts.json`. The encryption key is generated
   locally and kept at `~/.imap-mcp/.key`. The store directory and both files are
@@ -30,6 +51,11 @@ control**.
   iCloud, Yahoo, Fastmail, …) instead of your primary password.
 - Keep `~/.imap-mcp/` readable only by your user account.
 - Prefer least-privilege accounts/folders when possible.
+- In remote mode:
+  - keep the server on loopback behind a TLS-terminating proxy or tunnel;
+  - give each agent its own token with only the tools it needs;
+  - revoke tokens you no longer use;
+  - review the audit log now and then.
 - Be deliberate with destructive tools (`imap_delete_email`,
   `imap_bulk_delete`, `imap_bulk_delete_by_search`) — use the `dryRun` option to
   preview criteria-based deletions first. `imap_bulk_delete_by_search` requires

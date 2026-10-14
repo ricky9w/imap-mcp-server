@@ -347,6 +347,179 @@ The read-only subset is: `imap_list_accounts`, `imap_connect`, `imap_disconnect`
 `imap_get_unread_count`, `imap_check_spam`, `imap_domain_stats`,
 `imap_list_spam_domains`.
 
+## Remote (HTTP) mode
+
+`imap-mcp-server serve` runs the same tools over MCP Streamable HTTP. Agents on
+other machines can then use your mailboxes, while the mail credentials stay on
+the server. The stdio mode above is unchanged.
+
+The server speaks plain HTTP on one `host:port` (default `127.0.0.1:8765`).
+How you expose it is up to you: a reverse proxy with TLS, a tunnel, a VPN, or
+only localhost.
+
+### Start the server
+
+```bash
+imap-mcp-server serve                      # or: npx -p imap-mcp-server imap-mcp-server serve
+imap-mcp-server serve --host 127.0.0.1 --port 8765
+```
+
+The same port serves two things:
+
+| Path | Purpose | Credential |
+| --- | --- | --- |
+| `POST /mcp` | the MCP endpoint | an **agent token** |
+| every other path | the setup wizard in admin mode: accounts, **Agent Tokens**, **Audit Log** | the **admin token** |
+
+The admin token is `IMAP_MCP_WIZARD_TOKEN` if you set it (at least 16
+characters). Otherwise it is generated once into `~/.imap-mcp/admin-token`
+(mode 0600). The server never prints it; the startup log only names the file.
+Open `http://127.0.0.1:8765/?token=<admin token>` in a browser to log in.
+
+### Create an agent token
+
+You can create a token in **Agent Tokens** in the admin UI, or through the API:
+
+```bash
+ADMIN=$(cat ~/.imap-mcp/admin-token)
+curl -s -X POST http://127.0.0.1:8765/api/tokens \
+  -H "Authorization: Bearer $ADMIN" -H 'Content-Type: application/json' \
+  -d '{"name":"laptop","preset":"read_markread"}'
+```
+
+- **The token is shown once.** The response's `secret` (`imcp_…`) is the only copy; the server stores only its hash.
+- **Choosing tools:** give a `preset`, an explicit `tools` list, or both.
+- **Never grantable:** the account tools (`imap_add_account`, `imap_update_account`, `imap_remove_account`) and `imap_disconnect`.
+- **Managing tokens:**
+  - `PATCH /api/tokens/<id>` changes a token's name or tools.
+  - `POST /api/tokens/<id>/revoke` revokes it; this takes effect on the next request.
+  - `GET /api/tokens` lists tokens with their last use.
+  - `GET /api/audit` returns the audit log.
+
+| Preset | Tools |
+| --- | --- |
+| `readonly` | read mail, folders and spam analysis |
+| `read_markread` | `readonly` + `imap_mark_as_read` |
+| `triage` | `read_markread` + flags, keywords, move, create folder |
+| `assistant` | `triage` + `imap_save_draft`, `imap_upload_file` (the agent drafts, you send) |
+
+A token that can both read and send mail can be talked into forwarding your
+mail by a crafted email. Prefer `assistant` and send drafts yourself.
+
+### Connect a client
+
+**Claude Code:**
+
+```bash
+claude mcp add --transport http imap http://127.0.0.1:8765/mcp \
+  --header "Authorization: Bearer imcp_…"
+```
+
+**Clients configured with a URL and headers** (`.mcp.json` and similar):
+
+```json
+{
+  "mcpServers": {
+    "imap": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp",
+      "headers": { "Authorization": "Bearer imcp_…" }
+    }
+  }
+}
+```
+
+**`imap-mcp-cli`**, for agents without MCP. It installs with the package and
+prints JSON. It reads the token **only** from `IMAP_MCP_TOKEN`; no option
+accepts it.
+
+```bash
+export IMAP_MCP_URL=http://127.0.0.1:8765/mcp IMAP_MCP_TOKEN=imcp_…
+imap-mcp-cli tools
+imap-mcp-cli latest --count 5 | jq '.messages[].subject'
+imap-mcp-cli call imap_folder_status '{"folder":"INBOX"}'
+```
+
+Exit codes are 0 ok, 1 tool error or `success:false`, 2 usage, 3 unauthorized
+or not permitted, and 4 network. The full reference is in
+[skills/imap-mail/reference/cli.md](skills/imap-mail/reference/cli.md).
+[skills/imap-mail/SKILL.md](skills/imap-mail/SKILL.md) is an agent skill that
+teaches safe use; it treats email content as untrusted input.
+
+### Differences over HTTP
+
+- **`imap_download_attachment`** returns the file in the response: images as image content, other files as an embedded resource. It never writes to the server; `savePath` is an error, and files over `IMAP_MAX_UPLOAD_SIZE` are refused.
+- **`imap_save_draft`** only appends to the Drafts folder unless the token also holds `imap_move_email` and `imap_create_folder`.
+
+### Audit log
+
+`~/.imap-mcp/audit.log` (JSONL, 0600, rotated to `audit.log.1` at 10 MB)
+records:
+
+- every tool call, with its outcome (`ok`, `error` or `denied`), token, time and client address;
+- every failed authentication;
+- every token change and account change.
+
+Arguments are summarised: account, folder, uids, options, and the names (not
+values) of search criteria. Send, reply and forward record the full recipient
+list. Message text, subjects, credentials and tokens are never written.
+
+### Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `IMAP_MCP_HTTP_HOST` / `IMAP_MCP_HTTP_PORT` | `127.0.0.1` / `8765` | listen address (`--host` / `--port` take precedence) |
+| `IMAP_MCP_WIZARD_TOKEN` | generated into `~/.imap-mcp/admin-token` | admin token |
+| `IMAP_MCP_TRUST_PROXY` | not trusted | Express `trust proxy` value (`loopback`, `1`, a subnet …) |
+| `IMAP_MCP_ALLOWED_HOSTS` | loopback names when bound to loopback | comma-separated `Host` values to accept |
+| `IMAP_MCP_ALLOWED_ORIGINS` | none | browser origins accepted in addition to same-origin |
+| `IMAP_MCP_ENABLED_TOOLS` / `IMAP_MCP_READ_ONLY` | unset | when set, a ceiling for every token |
+| `IMAP_MAX_UPLOAD_SIZE` | 25 MB | also caps the `/mcp` request body and inline attachments |
+
+### Behind a reverse proxy
+
+Keep the server on loopback and let the proxy terminate TLS. Then set:
+
+- `IMAP_MCP_TRUST_PROXY=loopback`, so the audit log records real client
+  addresses and the admin cookie is marked `Secure`;
+- `IMAP_MCP_ALLOWED_HOSTS` to the public host name, since the proxy forwards
+  it as `Host`.
+
+```bash
+IMAP_MCP_TRUST_PROXY=loopback IMAP_MCP_ALLOWED_HOSTS=mail.example.com imap-mcp-server serve
+```
+
+Caddy:
+
+```
+mail.example.com {
+    reverse_proxy 127.0.0.1:8765
+}
+```
+
+nginx:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name mail.example.com;
+    # ssl_certificate …; ssl_certificate_key …;
+    client_max_body_size 40m;   # base64 attachments up to IMAP_MAX_UPLOAD_SIZE
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+The admin UI shares the port with `/mcp`. If agents need only `/mcp`, you can
+restrict the other paths at the proxy. Minimal, optional service examples are
+in [examples/systemd](examples/systemd/imap-mcp.service) and
+[examples/docker](examples/docker/Dockerfile).
+
 ## Usage
 
 Once configured, the IMAP MCP server provides the following tools in Claude:
@@ -736,6 +909,9 @@ replacing directory entries.
 - Downloaded attachments are confined to the downloads directory; sender-supplied
   filenames cannot write outside it
 - Never commit or share your encryption key or account configurations
+- Remote mode adds hashed agent tokens with per-token tool lists, an admin
+  token, and an audit log; see [Remote (HTTP) mode](#remote-http-mode) and
+  [SECURITY.md](SECURITY.md)
 
 ## Development
 
