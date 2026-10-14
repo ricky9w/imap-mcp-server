@@ -310,7 +310,21 @@ export class AccountManager {
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
 
     const accounts = Array.from(this.accounts.values());
-    await fs.writeFile(this.configPath, JSON.stringify(accounts, null, 2), { mode: 0o600 });
+    // Write a temporary file and rename it over accounts.json. The rename is
+    // atomic, so a save that dies half-way (disk full, crash, a second writer)
+    // never leaves a truncated store behind, which would load as no accounts.
+    const tmpPath = `${this.configPath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    try {
+      await fs.writeFile(tmpPath, JSON.stringify(accounts, null, 2), { mode: 0o600 });
+      await fs.rename(tmpPath, this.configPath);
+    } catch (error) {
+      try {
+        await fs.rm(tmpPath, { force: true });
+      } catch {
+        // best effort — the original error is what matters
+      }
+      throw error;
+    }
 
     await this.enforceStorePermissions();
   }

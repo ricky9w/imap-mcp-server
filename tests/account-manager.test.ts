@@ -11,6 +11,7 @@ vi.mock('fs', async () => {
     promises: {
       readFile: vi.fn(),
       writeFile: vi.fn(),
+      rename: vi.fn(),
       mkdir: vi.fn(),
     },
     readFileSync: vi.fn(),
@@ -35,6 +36,7 @@ describe('AccountManager', () => {
     // Mock accounts file not existing initially
     vi.mocked(fs.readFile).mockRejectedValue({ code: 'ENOENT' });
     vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+    vi.mocked(fs.rename).mockResolvedValue(undefined);
     vi.mocked(fs.mkdir).mockResolvedValue(undefined);
   });
 
