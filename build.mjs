@@ -45,4 +45,15 @@ await esbuild.build({
   external,
 });
 
+// Build the agent CLI (imap-mcp-cli)
+await esbuild.build({
+  entryPoints: ['src/cli/main.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  outfile: 'dist/cli.js',
+  external,
+  banner: shebang,
+});
+
 console.log('Build complete!');

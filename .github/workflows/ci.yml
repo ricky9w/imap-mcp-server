@@ -95,6 +95,7 @@ jobs:
           test -f dist/index.js || (echo "dist/index.js not found" && exit 1)
           test -f dist/setup.js || (echo "dist/setup.js not found" && exit 1)
           test -f dist/web/server.js || (echo "dist/web/server.js not found" && exit 1)
+          test -f dist/cli.js || (echo "dist/cli.js not found" && exit 1)
           echo "Build verification passed!"
 
       - name: Upload build artifacts

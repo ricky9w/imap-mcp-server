@@ -7,7 +7,8 @@
   "bin": {
     "imap-mcp-server": "dist/index.js",
     "imap-mcp": "dist/index.js",
-    "imap-setup": "dist/setup.js"
+    "imap-setup": "dist/setup.js",
+    "imap-mcp-cli": "dist/cli.js"
   },
   "files": [
     "dist",
