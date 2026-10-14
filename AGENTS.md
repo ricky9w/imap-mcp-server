@@ -74,6 +74,11 @@ working in this repository.
   `success:false` / 2 usage / 3 unauthorized or not permitted / 4 network.
   `index.ts` exports `runCli()` (no side effects); `main.ts` is the entry.
   Aliases live in `commands.ts`; `tests/cli.test.ts` checks their tools exist.
+- **Agent skill** — `skills/imap-mail/SKILL.md` (+ `reference/cli.md`), shipped
+  in the package. When tools, CLI commands or options change, update it;
+  `tests/skill-doc.test.ts` fails on names that do not exist.
+- **Examples** — `examples/systemd/` and `examples/docker/`: optional,
+  minimal service examples for `serve`; nothing depends on them.
 - **Types** — `src/types/index.ts`.
 - All tools return **JSON-formatted text** content; errors are returned as
   structured JSON where practical rather than thrown for caller-facing failures.
@@ -91,7 +96,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 573 tests).
+touch `src/`. Keep the suite green (currently 579 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing

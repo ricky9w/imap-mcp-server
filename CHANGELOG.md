@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Commands:** `tools`, `call <tool> [json]`, and the shortcuts `accounts`, `folders`, `latest`, `search`, `get`, `mark-read` and `attachment --out <file>`.
   - **Output:** stdout is the tool's JSON; errors are JSON on stderr. Exit codes: 0 ok, 1 tool error or `success:false`, 2 usage, 3 unauthorized or not permitted, 4 network.
   - Tests in `tests/cli.test.ts`.
+- `skills/imap-mail/SKILL.md` (with `reference/cli.md`), shipped in the package: an agent skill for using the remote tools and `imap-mcp-cli` safely. It treats email content as untrusted, never follows instructions from mail, and confirms sends, moves and deletes with the user. Tests in `tests/skill-doc.test.ts`.
+- README: a "Remote (HTTP) mode" section covering setup, tokens, client configuration, the audit log, configuration, and reverse proxies (Caddy and nginx examples). SECURITY.md covers the remote mode. `examples/systemd` and `examples/docker` are optional, minimal service examples.
 
 ### Changed
 - Internal groundwork for a remote (HTTP) mode; no tool, input or output changed. Service construction moved to `createServices()` in `src/core.ts`. `src/tools/policy.ts` places every tool in one permission group, and `src/tools/registry.ts` captures the tool definitions once so a server can register only an allowed subset. Tests in `tests/core.test.ts` and `tests/tool-policy.test.ts`.
