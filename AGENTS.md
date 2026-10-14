@@ -41,6 +41,8 @@ working in this repository.
   rejects non-loopback `Host`/`Origin`. With `--host` / `IMAP_MCP_BIND` beyond
   loopback, every request needs the per-start access token instead (cookie or
   `Authorization: Bearer`); keep both paths covered when touching middleware.
+  `server.ts` must stay free of import side effects — esbuild inlines it into
+  other entries; the standalone entry (`npm run web`) is `src/web/main.ts`.
 - **Types** — `src/types/index.ts`.
 - All tools return **JSON-formatted text** content; errors are returned as
   structured JSON where practical rather than thrown for caller-facing failures.
@@ -58,7 +60,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 451 tests).
+touch `src/`. Keep the suite green (currently 476 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
