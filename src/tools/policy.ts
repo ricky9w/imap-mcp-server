@@ -64,6 +64,32 @@ export const TOOL_PRESETS: Record<string, readonly ToolGroup[]> = {
   assistant: ['read', 'mark_read', 'flag', 'organize', 'draft'],
 };
 
+export interface ToolCatalog {
+  tools: Array<{ name: string; group: ToolGroup; description: string }>;
+  /** Each preset expanded to its tool names. */
+  presets: Record<string, string[]>;
+}
+
+/**
+ * What an agent token can be granted, for the admin API: every registered and
+ * classified tool except HTTP_FORBIDDEN, with its group and description.
+ */
+export function toolCatalog(definitions: ReadonlyArray<{ name: string; config: { description?: string } }>): ToolCatalog {
+  const groups = Object.keys(TOOL_GROUPS) as ToolGroup[];
+  const tools = definitions.flatMap(({ name, config }) => {
+    const group = groups.find(g => (TOOL_GROUPS[g] as readonly string[]).includes(name));
+    return group && !HTTP_FORBIDDEN.includes(name) ? [{ name, group, description: config.description ?? '' }] : [];
+  });
+  const grantable = new Set(tools.map(tool => tool.name));
+  const presets = Object.fromEntries(
+    Object.entries(TOOL_PRESETS).map(([preset, presetGroups]) => [
+      preset,
+      presetGroups.flatMap(group => TOOL_GROUPS[group]).filter(name => grantable.has(name)),
+    ])
+  );
+  return { tools, presets };
+}
+
 /**
  * The tools a token may use: its own list, minus HTTP_FORBIDDEN, narrowed by
  * IMAP_MCP_ENABLED_TOOLS / IMAP_MCP_READ_ONLY only when one of them is set

@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerTools, READ_ONLY_TOOLS } from '../src/tools/index.js';
-import { TOOL_GROUPS, TOOL_PRESETS, HTTP_FORBIDDEN, effectiveTools, type ToolGroup } from '../src/tools/policy.js';
+import { TOOL_GROUPS, TOOL_PRESETS, HTTP_FORBIDDEN, effectiveTools, toolCatalog, type ToolGroup } from '../src/tools/policy.js';
 import { collectToolDefinitions, applyToolDefinitions, type ToolDefinition } from '../src/tools/registry.js';
 
 /** Every tool name registerTools() registers when nothing restricts it. */
@@ -92,6 +92,23 @@ describe('effectiveTools', () => {
 
   it('grants nothing for an empty token list', () => {
     expect(effectiveTools([], {})).toEqual(new Set());
+  });
+});
+
+describe('toolCatalog', () => {
+  it('offers every tool except the HTTP-forbidden ones, with group and description', () => {
+    const catalog = toolCatalog(collectToolDefinitions(stubServices()));
+    expect(catalog.tools).toHaveLength(40 - HTTP_FORBIDDEN.length);
+    expect(catalog.tools.map(tool => tool.name)).not.toEqual(expect.arrayContaining([...HTTP_FORBIDDEN]));
+    expect(catalog.tools.find(tool => tool.name === 'imap_mark_as_read')).toMatchObject({ group: 'mark_read' });
+    expect(catalog.tools.every(tool => tool.description.length > 0)).toBe(true);
+  });
+
+  it('expands presets to tool names', () => {
+    const { presets } = toolCatalog(collectToolDefinitions(stubServices()));
+    expect(Object.keys(presets)).toEqual(Object.keys(TOOL_PRESETS));
+    expect(presets.read_markread).toHaveLength(16);
+    expect(presets.readonly).toEqual([...TOOL_GROUPS.read]);
   });
 });
 
