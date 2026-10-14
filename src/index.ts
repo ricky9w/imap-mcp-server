@@ -1,10 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import dotenv from 'dotenv';
-import { ImapService } from './services/imap-service.js';
-import { AccountManager } from './services/account-manager.js';
-import { SmtpService } from './services/smtp-service.js';
-import { SpamService } from './services/spam-service.js';
+import { createServices } from './core.js';
 import { registerTools } from './tools/index.js';
 import { PACKAGE_VERSION } from './utils/version.js';
 
@@ -25,13 +22,7 @@ const server = new McpServer({
   version: PACKAGE_VERSION,
 });
 
-const imapService = new ImapService();
-const accountManager = new AccountManager();
-const smtpService = new SmtpService();
-const spamService = new SpamService();
-
-// Allow ImapService to auto-connect using stored credentials
-imapService.setAccountManager(accountManager);
+const { imapService, accountManager, smtpService, spamService } = createServices();
 
 // Register all tools
 registerTools(server, imapService, accountManager, smtpService, spamService);
