@@ -357,6 +357,16 @@ async function testAndSaveAccount(accountData) {
     }
 }
 
+// Escape a value for an innerHTML template. Account fields come from
+// accounts.json, which MCP tools (imap_add_account / imap_update_account) can
+// write, so they must never be interpreted as markup. Ids go into data-*
+// attributes rather than inline JS strings, where HTML escaping does not help.
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[ch]);
+}
+
 // View accounts
 async function viewAccounts() {
     document.getElementById('providerSelection').classList.add('hidden');
@@ -386,17 +396,17 @@ async function viewAccounts() {
                     <tbody>
                         ${accounts.map(account => `
                             <tr class="border-b">
-                                <td class="py-3">${account.name}</td>
-                                <td class="py-3">${account.user}</td>
-                                <td class="py-3">${account.host}</td>
+                                <td class="py-3">${escapeHtml(account.name)}</td>
+                                <td class="py-3">${escapeHtml(account.user)}</td>
+                                <td class="py-3">${escapeHtml(account.host)}</td>
                                 <td class="py-3">
                                     <span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Active</span>
                                 </td>
                                 <td class="py-3 text-right">
-                                    <button onclick="editAccount('${account.id}')" class="text-blue-600 hover:text-blue-800 mr-2">
+                                    <button data-account-id="${escapeHtml(account.id)}" onclick="editAccount(this.dataset.accountId)" class="text-blue-600 hover:text-blue-800 mr-2">
                                         ✏️
                                     </button>
-                                    <button onclick="removeAccount('${account.id}')" class="text-red-600 hover:text-red-800">
+                                    <button data-account-id="${escapeHtml(account.id)}" onclick="removeAccount(this.dataset.accountId)" class="text-red-600 hover:text-red-800">
                                         🗑️
                                     </button>
                                 </td>

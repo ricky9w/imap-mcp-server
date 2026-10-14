@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `imap_bulk_delete` (and the other bulk deletes) reconnected after a failed chunk but kept sending the remaining chunks through the dead connection, so one dropped connection failed the rest of the batch. Each chunk now uses the client the reconnect returns. Tests in `tests/imap-service-reconnect.test.ts`.
 - A rejected IMAP login was retried on every following tool call, so an agent (or several) polling with a wrong or revoked password kept hammering the provider until it locked the account. After a rejected login the same credentials are not tried again for 30 s, doubling per failure up to 10 minutes; the error says how long. Changed credentials retry at once, network errors are not affected, `imap_test_account` is never held back, and a successful login resets the window. Tests in `tests/imap-service-auth-backoff.test.ts`.
 
+### Security
+- The setup wizard's account list inserted account name, user and host into the page as HTML, and the account id into inline `onclick` JavaScript. Accounts can be created or renamed through MCP tools (`imap_add_account`, `imap_update_account`), so an agent fed a malicious email could plant script that ran in the wizard with full access to its API. The fields are now escaped, and the id is passed through a `data-` attribute. Tests in `tests/web-wizard-escaping.test.ts`.
+
 ## [2.2.1] - 2026-10-13
 
 ### Security
