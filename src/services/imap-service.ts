@@ -1309,7 +1309,6 @@ export class ImapService {
     chunkSize: number = 50,
     onProgress?: (deleted: number, total: number) => void
   ): Promise<{ deleted: number; failed: number; errors: string[] }> {
-    const client = await this.ensureConnected(accountId);
     const trashFolder = await this.resolveTrashFolder(accountId);
     if (!trashFolder) {
       return {
@@ -1330,8 +1329,9 @@ export class ImapService {
 
       let lock;
       try {
-        // Ensure we're still connected before each chunk
-        await this.ensureConnected(accountId);
+        // Ensure we're still connected before each chunk, and use the client
+        // that returns: after a reconnect the one from the last chunk is dead.
+        const client = await this.ensureConnected(accountId);
 
         lock = await client.getMailboxLock(folderName);
 

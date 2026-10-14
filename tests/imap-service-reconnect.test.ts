@@ -20,6 +20,7 @@ vi.mock('imapflow', () => {
       listMock = vi.fn().mockResolvedValue([
         { path: 'INBOX', delimiter: '/', flags: [] },
       ]);
+      messageMoveMock = vi.fn().mockResolvedValue({});
       constructor() {
         instances.push(this);
       }
@@ -32,6 +33,8 @@ vi.mock('imapflow', () => {
       }
       logout() { return this.logoutMock(); }
       list() { return this.listMock(); }
+      getMailboxLock() { return Promise.resolve({ release: () => {} }); }
+      messageMove(...args: any[]) { return this.messageMoveMock(...args); }
       on() { /* no-op */ }
     },
   };
@@ -80,5 +83,24 @@ describe('ImapService reconnect (ImapFlow instances are single-use)', () => {
     instances[0].usable = false;
 
     await expect(imapService.listFolders(account.id)).resolves.toBeDefined();
+  });
+
+  // After a failed chunk bulkDelete marks the connection dead and reconnects
+  // before the next chunk, but it kept moving messages through the client it
+  // had captured at the start, so every later chunk went to the dead one.
+  it('bulkDelete moves the remaining chunks through the reconnected client', async () => {
+    await imapService.connect(account);
+    instances[0].messageMoveMock.mockImplementationOnce(() => {
+      instances[0].usable = false;
+      return Promise.reject(new Error('Connection lost'));
+    });
+
+    const result = await imapService.bulkDelete(account.id, 'INBOX', [1, 2, 3, 4], 2);
+
+    expect(instances).toHaveLength(2);
+    expect(instances[0].messageMoveMock).toHaveBeenCalledTimes(1);
+    expect(instances[1].messageMoveMock).toHaveBeenCalledWith('3,4', 'Trash', { uid: true });
+    expect(result.deleted).toBe(2);
+    expect(result.failed).toBe(2);
   });
 });
