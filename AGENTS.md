@@ -72,6 +72,9 @@ working in this repository.
   The token comes from `IMAP_MCP_TOKEN` only (never a flag); stdout is the
   tool's JSON, errors are JSON on stderr; exit codes 0 ok / 1 tool error or
   `success:false` / 2 usage / 3 unauthorized or not permitted / 4 network.
+  Policy refusals (`ToolDeniedError` in `src/http/`) come back as error
+  results marked with `_meta[DENIED_META_KEY]` (`src/utils/denied.ts`), which
+  the CLI maps to exit 3 — throw that error rather than inventing messages.
   `index.ts` exports `runCli()` (no side effects); `main.ts` is the entry.
   Aliases live in `commands.ts`; `tests/cli.test.ts` checks their tools exist.
 - **Agent skill** — `skills/imap-mail/SKILL.md` (+ `reference/cli.md`), shipped

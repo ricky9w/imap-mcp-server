@@ -78,6 +78,7 @@ describe('against the MCP endpoint', () => {
     getLatestEmails: vi.fn(async () => [{ uid: 1, subject: 'Hello', from: 'a@example.com' }]),
     moveEmail: vi.fn(async () => { throw new Error('No such folder'); }),
     getAttachmentContent: vi.fn(async () => ({ content: Buffer.from([0, 1, 2, 254, 255]), contentType: 'application/octet-stream', filename: 'blob.bin' })),
+    findDraftsFolder: vi.fn(async () => 'Drafts'),
   };
   // The endpoint wraps smtpService.sendEmail to see the envelope; keep the spy.
   const sendEmail = vi.fn();
@@ -98,7 +99,7 @@ describe('against the MCP endpoint', () => {
     dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'imap-mcp-cli-'));
     const tokenStore = new TokenStore(path.join(dir, 'tokens.json'));
     auditLog = new AuditLog(path.join(dir, 'audit.log'));
-    const { info, token } = await tokenStore.create('cli', ['imap_get_latest_emails', 'imap_move_email', 'imap_download_attachment']);
+    const { info, token } = await tokenStore.create('cli', ['imap_get_latest_emails', 'imap_move_email', 'imap_download_attachment', 'imap_save_draft']);
     tokenId = info.id;
 
     const app = express();
@@ -145,6 +146,18 @@ describe('against the MCP endpoint', () => {
     expect(auditLog.query({ tokenId, tool: 'imap_send_email' })[0]).toMatchObject({ outcome: 'denied' });
   });
 
+  it('exits 3 when the server refuses an allowed tool by policy, but 1 for an ordinary tool error', async () => {
+    const refused = await cli(['call', 'imap_save_draft', '{"folder":"INBOX","to":"a@example.com","subject":"s","text":"t"}'], env);
+    expect(refused.code).toBe(3);
+    expect(refused.stdout).toBe('');
+    expect(refused.error()).toMatchObject({ type: 'denied', message: expect.stringContaining('Drafts folder') });
+
+    imapService.getLatestEmails.mockRejectedValueOnce(new Error('IMAP connection lost'));
+    const failed = await cli(['latest'], env);
+    expect(failed.code).toBe(1);
+    expect(failed.error()).toMatchObject({ type: 'tool', message: expect.stringContaining('IMAP connection lost') });
+  });
+
   it('exits 3 for an invalid token', async () => {
     const result = await cli(['tools'], { ...env, IMAP_MCP_TOKEN: 'imcp_aaaaaaaaaa_' + 'b'.repeat(43) });
     expect(result.code).toBe(3);
@@ -176,7 +189,7 @@ describe('against the MCP endpoint', () => {
     const result = await cli(['tools'], env);
     expect(result.code).toBe(0);
     const tools = result.json();
-    expect(tools.map((tool: any) => tool.name)).toEqual(['imap_download_attachment', 'imap_move_email', 'imap_get_latest_emails']);
+    expect(tools.map((tool: any) => tool.name)).toEqual(['imap_download_attachment', 'imap_move_email', 'imap_get_latest_emails', 'imap_save_draft']);
     expect(tools[0].inputSchema).toBeDefined();
   });
 });

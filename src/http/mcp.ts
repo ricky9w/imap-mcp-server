@@ -8,10 +8,20 @@ import { summarizeArgs, type AuditLog, type Recipients } from '../services/audit
 import type { TokenStore } from '../services/token-store.js';
 import type { SmtpService } from '../services/smtp-service.js';
 import { PACKAGE_VERSION } from '../utils/version.js';
+import { DENIED_META_KEY } from '../utils/denied.js';
 import { bearerAuth, jsonRpcError, originAllowlist } from './guards.js';
 
-/** Thrown by a handler to refuse a call (audited as `denied`, not `error`). */
+/**
+ * Thrown by a handler to refuse a call by policy: audited as `denied`, not
+ * `error`, and answered with an error result marked by DENIED_META_KEY.
+ */
 export class ToolDeniedError extends Error {}
+
+const deniedResult = (message: string) => ({
+  content: [{ type: 'text' as const, text: message }],
+  isError: true,
+  _meta: { [DENIED_META_KEY]: true },
+});
 
 export interface McpEndpointOptions {
   /** HTTP tool definitions; each request registers the token's subset. */
@@ -98,7 +108,7 @@ export function createMcpRouter(options: McpEndpointOptions): Router {
         // Defence in depth: only allowed tools are registered, check per call too.
         if (!extra?.authInfo?.scopes?.includes(definition.name)) {
           audit(definition.name, { outcome: 'denied' });
-          throw new ToolDeniedError(`Tool ${definition.name} is not allowed for this token`);
+          return deniedResult(`Tool ${definition.name} is not allowed for this token`);
         }
         const started = Date.now();
         const context: SendContext = {};
@@ -113,7 +123,11 @@ export function createMcpRouter(options: McpEndpointOptions): Router {
           finish(result?.isError ? 'error' : 'ok');
           return result;
         } catch (error) {
-          finish(error instanceof ToolDeniedError ? 'denied' : 'error');
+          if (error instanceof ToolDeniedError) {
+            finish('denied');
+            return deniedResult(error.message);
+          }
+          finish('error');
           throw error;
         }
       });

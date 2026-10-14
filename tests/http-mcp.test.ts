@@ -9,6 +9,8 @@ import type { Server } from 'http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { collectToolDefinitions } from '../src/tools/registry.js';
+import { httpToolDefinitions } from '../src/http/overrides.js';
+import { DENIED_META_KEY } from '../src/utils/denied.js';
 import { TokenStore } from '../src/services/token-store.js';
 import { AuditLog } from '../src/services/audit-log.js';
 import { createMcpRouter } from '../src/http/mcp.js';
@@ -18,6 +20,7 @@ import { hostGuard } from '../src/http/guards.js';
 // services, real token and audit files in a temp dir.
 const imapService = {
   searchEmails: vi.fn(async () => []),
+  findDraftsFolder: vi.fn(async () => 'Drafts'),
 };
 // The endpoint wraps smtpService.sendEmail to see the envelope; keep the spy.
 const sendEmail = vi.fn(async () => ({ messageId: '<sent-1@example.com>' }));
@@ -45,11 +48,13 @@ const listen = (app: express.Express) =>
     const server = app.listen(0, '127.0.0.1', () => resolve(server));
   });
 
+const services: any = { imapService, accountManager, smtpService, spamService: {} };
+
 const mcpApp = (opts: { allowedHosts?: string[]; allowedOrigins?: string[]; maxBodyBytes?: number } = {}) => {
   const app = express();
   app.use(hostGuard('127.0.0.1', opts.allowedHosts ?? []));
   app.use(createMcpRouter({
-    definitions: collectToolDefinitions({ imapService, accountManager, smtpService, spamService: {} } as any),
+    definitions: httpToolDefinitions(collectToolDefinitions(services), services),
     smtpService: smtpService as any,
     tokenStore,
     auditLog,
@@ -204,6 +209,23 @@ describe('POST /mcp tool access', () => {
     const raw = readFileSync(path.join(dir, 'audit.log'), 'utf-8');
     expect(raw).not.toContain('Top secret');
     expect(raw).not.toContain(token);
+    await client.close();
+  });
+
+  it('marks a refusal by policy, unlike an ordinary tool error, and audits it as denied', async () => {
+    const { info, token } = await tokenStore.create('drafter', ['imap_save_draft', 'imap_search_emails']);
+    const client = await connect(token);
+
+    const refused: any = await client.callTool({ name: 'imap_save_draft', arguments: { folder: 'INBOX', to: 'a@example.com', subject: 's', text: 't' } });
+    expect(refused.isError).toBe(true);
+    expect(refused._meta?.[DENIED_META_KEY]).toBe(true);
+    expect(refused.content[0].text).toMatch(/Drafts folder/);
+    expect(auditEntries().find(e => e.tokenId === info.id && e.tool === 'imap_save_draft')).toMatchObject({ outcome: 'denied' });
+
+    imapService.searchEmails.mockRejectedValueOnce(new Error('IMAP connection lost'));
+    const failed: any = await client.callTool({ name: 'imap_search_emails', arguments: { folder: 'INBOX' } });
+    expect(failed.isError).toBe(true);
+    expect(failed._meta?.[DENIED_META_KEY]).toBeUndefined();
     await client.close();
   });
 

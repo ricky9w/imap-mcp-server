@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { PACKAGE_VERSION } from '../utils/version.js';
+import { DENIED_META_KEY } from '../utils/denied.js';
 
 export type CliErrorType = 'tool' | 'usage' | 'auth' | 'denied' | 'network';
 
@@ -21,6 +22,7 @@ export class CliError extends Error {
 export interface ToolResult {
   content?: Array<Record<string, any>>;
   isError?: boolean;
+  _meta?: Record<string, unknown>;
 }
 
 export function toCliError(error: unknown): CliError {
@@ -67,8 +69,9 @@ export const textOf = (result: ToolResult): string =>
   (result.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n');
 
 /**
- * Call a tool. The server only exposes the token's tools, so an error for a
- * tool that tools/list does not offer means it is not permitted (`denied`).
+ * Call a tool. A refusal by policy is marked with DENIED_META_KEY; a tool the
+ * token lacks is not registered at all, so an error for a tool that tools/list
+ * does not offer also means it is not permitted (`denied`).
  */
 export async function callTool(client: Client, name: string, args: Record<string, unknown>): Promise<ToolResult> {
   let result: ToolResult;
@@ -78,6 +81,9 @@ export async function callTool(client: Client, name: string, args: Record<string
     throw toCliError(error);
   }
   if (result.isError) {
+    if (result._meta?.[DENIED_META_KEY] === true) {
+      throw new CliError('denied', textOf(result) || `The server refused this use of ${name}.`);
+    }
     const offered = (await listTools(client)).some(tool => tool.name === name);
     if (!offered) {
       throw new CliError('denied', `Tool ${name} is not available to this token.`);

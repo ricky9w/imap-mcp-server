@@ -49,7 +49,7 @@ never shows up in `ps` or shell history. `--url` overrides `IMAP_MCP_URL`.
 | 0 | — | ok |
 | 1 | `tool` | the tool failed, or returned `success:false` (its JSON is still printed) |
 | 2 | `usage` | bad arguments, or `IMAP_MCP_URL` / `IMAP_MCP_TOKEN` missing |
-| 3 | `auth` / `denied` | token invalid or revoked / tool not available to this token |
+| 3 | `auth` / `denied` | token invalid or revoked / tool not available to this token, or the server refused this use of it by policy (e.g. a draft outside the Drafts folder) |
 | 4 | `network` | the server cannot be reached, or answered with an HTTP error |
 
 ## Examples
