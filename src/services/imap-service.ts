@@ -1,5 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
+import { createHash } from 'crypto';
 import { ImapAccount, EmailMessage, EmailContent, EmailBodyFormat, EmailLocation, Folder, SearchCriteria, SearchOptions, SentSaveResult, DEFAULT_BODY_MAX_LENGTH, DEFAULT_BODY_FORMAT, isSystemFlag } from '../types/index.js';
 import type { AccountManager } from './account-manager.js';
 import { htmlToMarkdown, normalizeWhitespace } from './html-to-markdown.js';
@@ -104,6 +105,18 @@ interface ConnectionState {
   isConnected: boolean;
 }
 
+/** Back-off after a rejected login: 30 s, doubling per failure, capped at 10 min. */
+const AUTH_BACKOFF_BASE_MS = 30 * 1000;
+const AUTH_BACKOFF_MAX_MS = 10 * 60 * 1000;
+
+interface AuthFailure {
+  /** Hash of the credentials that were rejected; changed credentials retry at once. */
+  credentials: string;
+  failures: number;
+  retryAt: number;
+  error: string;
+}
+
 interface EmailContentOptions {
   includeAttachmentText?: boolean;
   maxAttachmentTextBytes?: number;
@@ -179,6 +192,7 @@ export class ImapService {
   private connecting: Map<string, Promise<void>> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
   private maxReconnectAttempts = 3;
+  private authFailures: Map<string, AuthFailure> = new Map();
   private accountManager?: AccountManager;
 
   setAccountManager(accountManager: AccountManager): void {
@@ -242,6 +256,19 @@ export class ImapService {
     // credential and getting back an indistinguishable "AUTHENTICATE failed".
     assertCredentialsResolved(account, 'imap');
 
+    // Do not retry a rejected login until its back-off window has passed.
+    // Otherwise every tool call, from every session, logs in again with the
+    // same wrong password, which providers answer with a temporary lockout.
+    const credentials = ImapService.credentialFingerprint(account);
+    const failure = this.authFailures.get(account.id);
+    if (failure && failure.credentials === credentials && Date.now() < failure.retryAt) {
+      const seconds = Math.ceil((failure.retryAt - Date.now()) / 1000);
+      throw new Error(
+        `Login for account "${account.name}" was rejected recently; not retrying for ${seconds}s ` +
+        `to avoid a provider lockout. Fix the credentials or wait. Last error: ${failure.error}`
+      );
+    }
+
     const client = this.createClient(account);
 
     // Set up event handlers for connection management. Only flag the state
@@ -264,15 +291,30 @@ export class ImapService {
     try {
       await client.connect();
     } catch (err) {
-      throw new Error(enrichConnectionError(err, account.host));
+      const message = enrichConnectionError(err, account.host);
+      // imapflow marks a rejected LOGIN/AUTHENTICATE; network errors retry freely.
+      if ((err as { authenticationFailed?: boolean } | undefined)?.authenticationFailed) {
+        const failures = (failure?.credentials === credentials ? failure.failures : 0) + 1;
+        const delay = Math.min(AUTH_BACKOFF_BASE_MS * 2 ** (failures - 1), AUTH_BACKOFF_MAX_MS);
+        this.authFailures.set(account.id, { credentials, failures, retryAt: Date.now() + delay, error: message });
+      }
+      throw new Error(message);
     }
 
+    this.authFailures.delete(account.id);
     this.connections.set(account.id, {
       client,
       account,
       isConnected: true,
     });
     this.reconnectAttempts.set(account.id, 0);
+  }
+
+  /** Identifies the credentials a login used without keeping them in plain text. */
+  private static credentialFingerprint(account: ImapAccount): string {
+    return createHash('sha256')
+      .update([account.host, account.port, account.user, account.password].join('\0'))
+      .digest('hex');
   }
 
   async disconnect(accountId: string): Promise<void> {
