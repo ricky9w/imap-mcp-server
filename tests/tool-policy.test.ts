@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerTools, READ_ONLY_TOOLS } from '../src/tools/index.js';
 import { TOOL_GROUPS, TOOL_PRESETS, HTTP_FORBIDDEN, effectiveTools, type ToolGroup } from '../src/tools/policy.js';
+import { collectToolDefinitions, applyToolDefinitions, type ToolDefinition } from '../src/tools/registry.js';
 
 /** Every tool name registerTools() registers when nothing restricts it. */
 function registeredToolNames(): string[] {
@@ -88,5 +92,91 @@ describe('effectiveTools', () => {
 
   it('grants nothing for an empty token list', () => {
     expect(effectiveTools([], {})).toEqual(new Set());
+  });
+});
+
+// Handlers only touch the services when called, so stubs are enough to collect.
+const stubServices = (overrides: Record<string, unknown> = {}): any => ({
+  imapService: {},
+  accountManager: {},
+  smtpService: {},
+  spamService: {},
+  ...overrides,
+});
+
+describe('collectToolDefinitions', () => {
+  it('captures the same tools, in the same order, as registerTools()', () => {
+    const names = collectToolDefinitions(stubServices()).map(definition => definition.name);
+    expect(names).toEqual(registeredToolNames());
+  });
+
+  it('keeps each registrar config and handler', () => {
+    for (const definition of collectToolDefinitions(stubServices())) {
+      expect(typeof definition.config.description, definition.name).toBe('string');
+      expect(definition.config.inputSchema, definition.name).toBeDefined();
+      expect(typeof definition.handler, definition.name).toBe('function');
+    }
+  });
+});
+
+describe('applyToolDefinitions', () => {
+  const definitions: ToolDefinition[] = [
+    { name: 'imap_a', config: { description: 'a' }, handler: () => 'a' },
+    { name: 'imap_b', config: { description: 'b' }, handler: () => 'b' },
+    { name: 'imap_c', config: { description: 'c' }, handler: () => 'c' },
+  ];
+
+  it('registers only the allowed definitions, with their config and handler', () => {
+    const registerTool = vi.fn();
+    applyToolDefinitions({ registerTool } as any, definitions, new Set(['imap_c', 'imap_a']));
+
+    expect(registerTool.mock.calls).toEqual([
+      ['imap_a', definitions[0].config, definitions[0].handler],
+      ['imap_c', definitions[2].config, definitions[2].handler],
+    ]);
+  });
+
+  it('registers the wrapped handler when a wrapper is given', () => {
+    const registerTool = vi.fn();
+    const wrapped = () => 'wrapped';
+    const wrap = vi.fn(() => wrapped);
+    applyToolDefinitions({ registerTool } as any, definitions, new Set(['imap_b']), wrap);
+
+    expect(wrap).toHaveBeenCalledExactlyOnceWith(definitions[1]);
+    expect(registerTool).toHaveBeenCalledExactlyOnceWith('imap_b', definitions[1].config, wrapped);
+  });
+
+  // The real SDK, end to end: two servers built from one captured list expose
+  // only their own allowed tools, and calls reach the wrapped handler.
+  it('builds independent servers from one captured list', async () => {
+    const collected = collectToolDefinitions(stubServices({ accountManager: { getAllAccounts: () => [] } }));
+    const calls: string[] = [];
+    const wrap = (definition: ToolDefinition) => (...args: any[]) => {
+      calls.push(definition.name);
+      return definition.handler(...args);
+    };
+
+    const connect = async (allowed: string[]) => {
+      const server = new McpServer({ name: 'test', version: '0.0.0' });
+      applyToolDefinitions(server, collected, new Set(allowed), wrap);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      const client = new Client({ name: 'test-client', version: '0.0.0' });
+      await client.connect(clientTransport);
+      return client;
+    };
+
+    const reader = await connect(['imap_list_accounts', 'imap_search_emails']);
+    const sender = await connect(['imap_send_email']);
+
+    expect((await reader.listTools()).tools.map(tool => tool.name)).toEqual(['imap_list_accounts', 'imap_search_emails']);
+    expect((await sender.listTools()).tools.map(tool => tool.name)).toEqual(['imap_send_email']);
+
+    const result: any = await reader.callTool({ name: 'imap_list_accounts', arguments: {} });
+    expect(JSON.parse(result.content[0].text)).toEqual({ accounts: [] });
+    expect(calls).toEqual(['imap_list_accounts']);
+
+    await reader.close();
+    await sender.close();
   });
 });
