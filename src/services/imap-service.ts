@@ -175,6 +175,8 @@ export function parseRawHeaders(raw: Buffer | string): Record<string, string> {
 
 export class ImapService {
   private connections: Map<string, ConnectionState> = new Map();
+  /** In-flight connection attempts per account, shared by overlapping calls. */
+  private connecting: Map<string, Promise<void>> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
   private maxReconnectAttempts = 3;
   private accountManager?: AccountManager;
@@ -221,27 +223,43 @@ export class ImapService {
       return;
     }
 
+    // Tool calls from several sessions can overlap. Without this, each caller
+    // would build its own ImapFlow and every one but the last stored would
+    // leak an open, logged-in connection.
+    const pending = this.connecting.get(account.id);
+    if (pending) {
+      return pending;
+    }
+    const attempt = this.openConnection(account).finally(() => {
+      this.connecting.delete(account.id);
+    });
+    this.connecting.set(account.id, attempt);
+    return attempt;
+  }
+
+  private async openConnection(account: ImapAccount): Promise<void> {
     // Fail with the missing variable name rather than dialing out with a blank
     // credential and getting back an indistinguishable "AUTHENTICATE failed".
     assertCredentialsResolved(account, 'imap');
 
     const client = this.createClient(account);
 
-    // Set up event handlers for connection management
+    // Set up event handlers for connection management. Only flag the state
+    // that still belongs to this client: a replaced client closing late must
+    // not mark its successor as disconnected.
+    const markDisconnected = () => {
+      const state = this.connections.get(account.id);
+      if (state?.client === client) {
+        state.isConnected = false;
+      }
+    };
+
     client.on('error', (err) => {
       console.error(`IMAP error for account ${account.id}:`, err.message);
-      const state = this.connections.get(account.id);
-      if (state) {
-        state.isConnected = false;
-      }
+      markDisconnected();
     });
 
-    client.on('close', () => {
-      const state = this.connections.get(account.id);
-      if (state) {
-        state.isConnected = false;
-      }
-    });
+    client.on('close', markDisconnected);
 
     try {
       await client.connect();
@@ -309,10 +327,15 @@ export class ImapService {
         } catch {
           // ignore
         }
-        this.connections.delete(accountId);
+        // An overlapping call may have replaced the dead entry while we
+        // awaited the logout; only drop it if it is still the dead one.
+        if (this.connections.get(accountId) === state) {
+          this.connections.delete(accountId);
+        }
 
-        // Build a brand-new ImapFlow client + connection state. connect() resets
-        // the reconnect-attempt counter to 0 on success.
+        // Build a brand-new ImapFlow client + connection state, or join the
+        // attempt an overlapping call already started. connect() resets the
+        // reconnect-attempt counter to 0 on success.
         await this.connect(account);
         state = this.connections.get(accountId);
         if (!state) {
