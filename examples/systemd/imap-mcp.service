@@ -1,0 +1,27 @@
+# Optional example: run `imap-mcp-server serve` as a systemd service.
+# Assumes a global install (npm install -g imap-mcp-server) and a system user
+# "imap-mcp". Accounts, key, tokens and audit log live in $HOME/.imap-mcp.
+# Copy to /etc/systemd/system/, adjust, then: systemctl enable --now imap-mcp
+[Unit]
+Description=IMAP MCP server (Streamable HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=imap-mcp
+Environment=HOME=/var/lib/imap-mcp
+# Optional settings (IMAP_MCP_WIZARD_TOKEN, IMAP_MCP_TRUST_PROXY,
+# IMAP_MCP_ALLOWED_HOSTS, IMAP_MCP_ACCOUNT_* …), one VAR=value per line.
+EnvironmentFile=-/etc/imap-mcp/env
+ExecStart=/usr/bin/env imap-mcp-server serve --host 127.0.0.1 --port 8765
+Restart=on-failure
+StateDirectory=imap-mcp
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
