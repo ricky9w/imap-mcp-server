@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Internal groundwork for a remote (HTTP) mode; no tool, input or output changed. Service construction moved to `createServices()` in `src/core.ts`. `src/tools/policy.ts` places every tool in one permission group, and `src/tools/registry.ts` captures the tool definitions once so a server can register only an allowed subset. Tests in `tests/core.test.ts` and `tests/tool-policy.test.ts`.
+
 ### Fixed
 - The bundled setup wizard no longer starts a second wizard. The entry-point check at the bottom of `src/web/server.ts` compared `import.meta.url` with `argv[1]`; once esbuild inlined the file into `dist/setup.js`, it matched there too whenever the bundle was started by its real path (`node dist/setup.js`, the Windows npm shims). A second wizard then came up on `127.0.0.1:$PORT` (default 3000) — without the access token when `--host` was used. The standalone entry moved to `src/web/main.ts`. Tests in `tests/web-server-entry.test.ts`.
 - Overlapping tool calls for an account with no live connection each opened their own IMAP connection; all but one leaked, logged in, counting against the provider's connection limit. Concurrent calls now share one connection attempt, and a dead connection is replaced exactly once. A replaced connection that reports `close` late no longer marks its successor as disconnected. Tests in `tests/imap-service-concurrency.test.ts`.

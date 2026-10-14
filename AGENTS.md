@@ -8,7 +8,8 @@ working in this repository.
 ## Architecture
 
 - **Entry point** — `src/index.ts` boots an `McpServer` (MCP SDK) over **stdio**
-  and registers all tools via `src/tools/index.ts`.
+  and registers all tools via `src/tools/index.ts`. The services come from
+  `createServices()` in `src/core.ts`, which every entry point shares.
 - **Services** (`src/services/`):
   - `ImapService` — IMAP protocol via **`imapflow`**, with connection pooling,
     folder operations, search, fetch, move/delete, append (Sent/Drafts).
@@ -36,6 +37,12 @@ working in this repository.
     mark read/unread, delete, bulk delete, move, attachments, upload, threads.
   - `folder-tools.ts` — list, status, create, unread counts.
   - `spam-tools.ts` — spam analysis, domain stats, allow/deny lists.
+  - `policy.ts` — every tool in exactly one permission group (`TOOL_GROUPS`),
+    presets, and the tools never grantable over HTTP. **Classify each new
+    tool there**; `tests/tool-policy.test.ts` fails otherwise.
+  - `registry.ts` — captures the tool definitions once so a server can be
+    built with only an allowed subset; keep its registrar calls in sync with
+    `registerTools()`.
 - **Web setup wizard** — `src/web/server.ts` (Express) serves `public/` for
   account onboarding (`npm run setup` / `imap-setup`). Binds `127.0.0.1` and
   rejects non-loopback `Host`/`Origin`. With `--host` / `IMAP_MCP_BIND` beyond
@@ -60,7 +67,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 476 tests).
+touch `src/`. Keep the suite green (currently 494 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
