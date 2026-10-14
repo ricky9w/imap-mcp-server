@@ -12,8 +12,27 @@ vi.mock('imapflow', () => ({
     usable = true;
     loggedOut = false;
     handlers: Record<string, (...args: any[]) => void> = {};
+    // Mailbox locks queue FIFO like imapflow's; taking one selects the mailbox.
+    mailbox: any = false;
+    mailboxOpenCalls = 0;
+    private lockQueue: Promise<void> = Promise.resolve();
     constructor() {
       instances.push(this);
+    }
+    getMailboxLock(path: string) {
+      const previous = this.lockQueue;
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      this.lockQueue = previous.then(() => released);
+      return previous.then(() => {
+        this.mailbox = { path, flags: new Set(['\\Seen']), permanentFlags: new Set(['\\*']) };
+        return { path, release };
+      });
+    }
+    mailboxOpen(path: string) {
+      this.mailboxOpenCalls++;
+      this.mailbox = { path, flags: new Set(['\\Seen']), permanentFlags: new Set(['\\*']) };
+      return Promise.resolve(this.mailbox);
     }
     connect() {
       // Resolve on a later tick so overlapping callers really overlap.
@@ -92,5 +111,30 @@ describe('ImapService under overlapping tool calls', () => {
 
     expect(instances).toHaveLength(2);
     expect(instances[1].loggedOut).toBe(false);
+  });
+
+  // imap_folder_status used a bare mailboxOpen(). Landing between another
+  // call's SEARCH and its UID STORE/MOVE, it switched the selected mailbox
+  // under that call, whose UIDs then hit the wrong folder.
+  it('selects a folder for status only after the current mailbox lock is released', async () => {
+    await service.listFolders('acc');
+    const client = instances[0];
+    const held = await client.getMailboxLock('INBOX');
+
+    let selected = false;
+    const pending = service.selectFolder('acc', 'Archive').then((box) => {
+      selected = true;
+      return box;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(selected).toBe(false);
+    expect(client.mailbox.path).toBe('INBOX');
+
+    held.release();
+    const box = await pending;
+    expect(box.path).toBe('Archive');
+    expect(Array.from(box.flags)).toEqual(['\\Seen']);
+    expect(client.mailboxOpenCalls).toBe(0);
   });
 });

@@ -379,7 +379,15 @@ export class ImapService {
 
   async selectFolder(accountId: string, folderName: string): Promise<any> {
     const client = await this.ensureConnected(accountId);
-    return await client.mailboxOpen(folderName);
+    // Select through the mailbox lock, never a bare mailboxOpen(): that would
+    // switch the selected mailbox under another call holding the lock between
+    // its SEARCH and a UID STORE/MOVE, which then acts on the wrong folder.
+    const lock = await client.getMailboxLock(folderName);
+    try {
+      return client.mailbox;
+    } finally {
+      lock.release();
+    }
   }
 
   async getFolderStatus(accountId: string, folderName: string): Promise<{
