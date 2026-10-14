@@ -13,6 +13,7 @@
   "files": [
     "dist",
     "public",
+    "skills",
     "README.md",
     "LICENSE"
   ],
