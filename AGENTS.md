@@ -10,6 +10,18 @@ working in this repository.
 - **Entry point** — `src/index.ts` boots an `McpServer` (MCP SDK) over **stdio**
   and registers all tools via `src/tools/index.ts`. The services come from
   `createServices()` in `src/core.ts`, which every entry point shares.
+  `imap-mcp-server serve` starts the HTTP server instead (`src/http/`).
+- **HTTP mode** (`src/http/`) — `serve.ts` puts everything on one configurable
+  `host:port` (default `127.0.0.1:8765`, plain HTTP; exposure/TLS is the
+  user's choice): a Host guard, stateless Streamable HTTP at `POST /mcp`
+  (`mcp.ts`: one `McpServer` per request with only the agent token's tools,
+  every call audited), and the wizard in admin mode for all other paths.
+  `guards.ts` holds bearer/Host/Origin checks, `overrides.ts` the only
+  HTTP-vs-stdio tool differences (inline attachments, Drafts-only drafts).
+  Agent tokens (`imcp_…`, hashed, `TokenStore`) and the admin token are never
+  interchangeable; the `admin` tool group is never grantable over HTTP. The
+  audit log (`AuditLog`) records whitelisted argument summaries only
+  (`summarizeArgs`) — keep message text, subjects and secrets out of it.
 - **Services** (`src/services/`):
   - `ImapService` — IMAP protocol via **`imapflow`**, with connection pooling,
     folder operations, search, fetch, move/delete, append (Sent/Drafts).
@@ -50,6 +62,8 @@ working in this repository.
   `Authorization: Bearer`); keep both paths covered when touching middleware.
   `server.ts` must stay free of import side effects — esbuild inlines it into
   other entries; the standalone entry (`npm run web`) is `src/web/main.ts`.
+  With `admin` deps (passed by `serve`) it runs in admin mode: the admin token
+  is always required, and it adds the token, catalog and audit API.
 - **Types** — `src/types/index.ts`.
 - All tools return **JSON-formatted text** content; errors are returned as
   structured JSON where practical rather than thrown for caller-facing failures.
@@ -67,7 +81,7 @@ npm run setup        # launch the web setup wizard
 ```
 
 Always run `npm run build` **and** `npm test` before committing changes that
-touch `src/`. Keep the suite green (currently 494 tests).
+touch `src/`. Keep the suite green (currently 556 tests).
 
 > Note: `npm run lint` (`tsc --noEmit`) is memory-hungry on this project — the
 > MCP SDK's `registerTool` generics are deep enough to surface a pre-existing
