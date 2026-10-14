@@ -190,13 +190,16 @@ export class WebUIServer {
     // local accounts API" vector.
     if (this.admin) {
       // Admin mode: the serve app already checks Host; every request needs
-      // the admin token, and state-changing API calls must be JSON so a
-      // cross-site form can never submit one.
+      // the admin token, and a state-changing API call that carries a body
+      // must be JSON so a cross-site form can never submit one (forms always
+      // send a Content-Type). A body-less call such as a revoke needs none.
       this.app.use(WebUIServer.securityHeaders());
       this.app.use(this.tokenRequired());
       this.app.use((req, res, next) => {
         const mutating = req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH';
-        if (mutating && req.path.startsWith('/api/') && !/^application\/json\b/i.test(req.headers['content-type'] ?? '')) {
+        const contentType = req.headers['content-type'];
+        const hasBody = req.headers['transfer-encoding'] !== undefined || Number(req.headers['content-length'] ?? 0) > 0;
+        if (mutating && req.path.startsWith('/api/') && (hasBody || contentType !== undefined) && !/^application\/json\b/i.test(contentType ?? '')) {
           res.status(415).json({ error: 'Content-Type must be application/json.' });
           return;
         }

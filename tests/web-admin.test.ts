@@ -214,6 +214,20 @@ describe('admin token API', () => {
     expect(events).toEqual(['token_revoked', 'token_updated', 'token_created']);
   });
 
+  it('revokes with an empty body, still refusing non-JSON content and other origins', async () => {
+    const { token } = (await asAdmin({ method: 'POST', path: '/api/tokens', body: { name: 'bare', tools: ['imap_search_emails'] } })).json();
+    const revoke = (headers: Record<string, string> = {}) =>
+      asAdmin({ method: 'POST', path: `/api/tokens/${token.id}/revoke`, json: false, headers });
+
+    expect((await revoke({ origin: 'http://evil.example' })).status).toBe(403);
+    expect((await revoke({ 'content-type': 'text/plain' })).status).toBe(415);
+    expect(tokenStore.get(token.id)?.revokedAt).toBeUndefined();
+
+    const revoked = await revoke();
+    expect(revoked.status).toBe(200);
+    expect(revoked.json().token.revokedAt).toBeDefined();
+  });
+
   it('answers audit queries', async () => {
     const res = await asAdmin({ path: '/api/audit?limit=2' });
     expect(res.status).toBe(200);

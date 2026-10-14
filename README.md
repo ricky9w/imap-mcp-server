@@ -392,9 +392,15 @@ curl -s -X POST http://127.0.0.1:8765/api/tokens \
 - **Never grantable:** the account tools (`imap_add_account`, `imap_update_account`, `imap_remove_account`) and `imap_disconnect`.
 - **Managing tokens:**
   - `PATCH /api/tokens/<id>` changes a token's name or tools.
-  - `POST /api/tokens/<id>/revoke` revokes it; this takes effect on the next request.
+  - `POST /api/tokens/<id>/revoke` revokes it; this takes effect on the next request. It needs no body.
   - `GET /api/tokens` lists tokens with their last use.
   - `GET /api/audit` returns the audit log.
+- **Request bodies:** any `POST`/`PUT`/`PATCH` that carries a body must send
+  it as `Content-Type: application/json`; anything else gets 415.
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/api/tokens/<id>/revoke -H "Authorization: Bearer $ADMIN"
+```
 
 | Preset | Tools |
 | --- | --- |
