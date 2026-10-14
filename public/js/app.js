@@ -115,10 +115,17 @@ function selectProvider(providerId) {
     }
 }
 
+// Leaving the admin views (agent tokens / audit log, js/admin.js) for the wizard.
+function showWizardViews() {
+    document.getElementById('adminViews').classList.add('hidden');
+    document.getElementById('stepIndicator').classList.remove('hidden');
+}
+
 // Navigation
 function goToStep(step) {
     currentStep = step;
-    
+    showWizardViews();
+
     // Hide all steps
     document.getElementById('providerSelection').classList.add('hidden');
     document.getElementById('credentialsForm').classList.add('hidden');
@@ -369,6 +376,7 @@ function escapeHtml(value) {
 
 // View accounts
 async function viewAccounts() {
+    showWizardViews();
     document.getElementById('providerSelection').classList.add('hidden');
     document.getElementById('credentialsForm').classList.add('hidden');
     document.getElementById('testConnection').classList.add('hidden');

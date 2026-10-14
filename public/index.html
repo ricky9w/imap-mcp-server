@@ -54,6 +54,13 @@
                         <button onclick="viewAccounts()" class="text-gray-600 hover:text-gray-900">
                             <span class="mr-2">📋</span>View Accounts
                         </button>
+                        <!-- Admin mode (serve) only; shown by js/admin.js -->
+                        <button id="tokensNav" class="hidden text-gray-600 hover:text-gray-900">
+                            <span class="mr-2">🔑</span>Agent Tokens
+                        </button>
+                        <button id="auditNav" class="hidden text-gray-600 hover:text-gray-900">
+                            <span class="mr-2">📜</span>Audit Log
+                        </button>
                         <a href="https://github.com/nikolausm/imap-mcp-server" target="_blank" class="text-gray-600 hover:text-gray-900">
                             <span class="text-xl">🐙</span>
                         </a>
@@ -65,7 +72,7 @@
         <!-- Main Content -->
         <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <!-- Step Indicator -->
-            <div class="mb-8">
+            <div id="stepIndicator" class="mb-8">
                 <div class="flex items-center justify-center space-x-4">
                     <div class="step-item flex items-center" id="step1">
                         <div class="step-circle bg-blue-600 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold">1</div>
@@ -291,9 +298,123 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Admin mode (serve) only: agent tokens and the audit log, see js/admin.js -->
+            <div id="adminViews" class="hidden">
+                <!-- Token List View -->
+                <div id="tokensView" class="admin-view hidden">
+                    <h2 class="text-xl font-semibold mb-6">Agent Tokens</h2>
+                    <div class="bg-white rounded-lg shadow">
+                        <div id="tokensTable" class="p-6">
+                            <!-- Tokens will be listed here -->
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <button id="newTokenButton" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                            <span class="mr-2">➕</span>New Token
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Token Form -->
+                <div id="tokenForm" class="admin-view hidden">
+                    <h2 id="tokenFormTitle" class="text-xl font-semibold mb-6">New agent token</h2>
+                    <div class="max-w-2xl mx-auto bg-white rounded-lg shadow p-6">
+                        <div class="mb-4">
+                            <label for="tokenName" class="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                            <input type="text" id="tokenName" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., claude-code@laptop">
+                        </div>
+                        <div class="mb-4">
+                            <span class="block text-sm font-medium text-gray-700 mb-2">Presets</span>
+                            <div id="tokenPresets" class="flex flex-wrap gap-2"></div>
+                        </div>
+                        <div class="mb-4">
+                            <span class="block text-sm font-medium text-gray-700 mb-2">Tools</span>
+                            <div id="tokenTools" class="space-y-3"></div>
+                        </div>
+                        <div id="readSendWarning" class="hidden bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+                            <p class="text-yellow-800 text-sm"><span class="mr-1">⚠️</span>This token can read mail and send mail. Email content can trick an agent into sending your mail elsewhere — prefer the draft tools and send drafts yourself.</p>
+                        </div>
+                        <div id="tokenFormError" class="hidden bg-red-50 border border-red-200 rounded-md p-3 mb-4">
+                            <p class="text-red-800 text-sm" id="tokenFormErrorMessage"></p>
+                        </div>
+                        <div class="flex justify-between mt-6">
+                            <button type="button" id="tokenFormCancel" class="px-4 py-2 text-gray-600 hover:text-gray-900">
+                                <span class="mr-2">✕</span>Cancel
+                            </button>
+                            <button type="button" id="tokenFormSave" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                                Save<span class="ml-2">→</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Token Created: the only time the token is shown -->
+                <div id="tokenCreated" class="admin-view hidden">
+                    <h2 class="text-xl font-semibold mb-6">Token created</h2>
+                    <div class="max-w-2xl mx-auto bg-white rounded-lg shadow p-6">
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+                            <p class="text-yellow-800 text-sm"><span class="mr-1">⚠️</span>Copy the token now. It is shown only once and cannot be recovered.</p>
+                        </div>
+                        <label for="tokenSecret" class="block text-sm font-medium text-gray-700 mb-2">Token</label>
+                        <div class="flex gap-2 mb-4">
+                            <input type="text" id="tokenSecret" readonly class="flex-1 px-3 py-2 border border-gray-300 rounded-md font-mono text-sm">
+                            <button type="button" data-copy="tokenSecret" class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
+                                <span class="mr-2">📋</span>Copy
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-medium text-gray-700">Claude Code</span>
+                            <button type="button" data-copy="snippetCli" class="text-blue-600 hover:text-blue-800 text-sm"><span class="mr-1">📋</span>Copy</button>
+                        </div>
+                        <pre id="snippetCli" class="bg-gray-100 rounded-md p-3 text-xs overflow-x-auto mb-4"></pre>
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm font-medium text-gray-700">JSON config (clients that take a URL and headers)</span>
+                            <button type="button" data-copy="snippetJson" class="text-blue-600 hover:text-blue-800 text-sm"><span class="mr-1">📋</span>Copy</button>
+                        </div>
+                        <pre id="snippetJson" class="bg-gray-100 rounded-md p-3 text-xs overflow-x-auto"></pre>
+                        <div class="flex justify-end mt-6">
+                            <button type="button" id="tokenCreatedDone" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                                <span class="mr-2">✅</span>Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audit Log View -->
+                <div id="auditView" class="admin-view hidden">
+                    <h2 class="text-xl font-semibold mb-6">Audit Log</h2>
+                    <div class="flex flex-wrap items-end gap-4 mb-4">
+                        <div>
+                            <label for="auditToken" class="block text-sm font-medium text-gray-700 mb-2">Token</label>
+                            <select id="auditToken" class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">All tokens</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="auditTool" class="block text-sm font-medium text-gray-700 mb-2">Tool</label>
+                            <input type="text" id="auditTool" class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., imap_send_email">
+                        </div>
+                        <button type="button" id="auditApply" class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
+                            <span class="mr-2">🔍</span>Filter
+                        </button>
+                    </div>
+                    <div class="bg-white rounded-lg shadow">
+                        <div id="auditTable" class="p-6 overflow-x-auto">
+                            <!-- Audit entries will be listed here -->
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <button type="button" id="auditMore" class="hidden px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">
+                            Load more
+                        </button>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
     <script src="/js/app.js"></script>
+    <script src="/js/admin.js"></script>
 </body>
 </html>
