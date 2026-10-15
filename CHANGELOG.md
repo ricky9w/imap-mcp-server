@@ -30,11 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `accounts.json` was overwritten in place, so a save that failed half-way (disk full, a crash, two processes saving at once) could leave a truncated file, and the next start loaded no accounts at all. Saves now write a temporary file and rename it over the store, so the previous version stays intact until the new one is complete. Tests in `tests/account-manager-atomic-write.test.ts`.
 
 ### Security
-- The setup wizard's account list inserted account name, user and host into the page as HTML, and the account id into inline `onclick` JavaScript. Accounts can be created or renamed through MCP tools (`imap_add_account`, `imap_update_account`), so an agent fed a malicious email could plant script that ran in the wizard with full access to its API. The fields are now escaped, and the id is passed through a `data-` attribute. Tests in `tests/web-wizard-escaping.test.ts`.
-
-## [2.2.1] - 2026-10-13
-
-### Security
 - Confine path-based attachments and download targets to configured directories.
   Canonical path checks reject out-of-root targets and credential-store access;
   uploads and default download names use the same validation. Attachment bytes
@@ -43,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attachment roots with `IMAP_ATTACHMENT_DIRS`. Set `IMAP_DOWNLOAD_DIR` for the
   desired download destination; relative `savePath` values start at that root.
   The default tool permissions and credential-storage format are unchanged.
+- The setup wizard's account list inserted account name, user and host into the page as HTML, and the account id into inline `onclick` JavaScript. Accounts can be created or renamed through MCP tools (`imap_add_account`, `imap_update_account`), so an agent fed a malicious email could plant script that ran in the wizard with full access to its API. The fields are now escaped, and the id is passed through a `data-` attribute. Tests in `tests/web-wizard-escaping.test.ts`.
 
 ## [2.2.0] - 2026-10-09
 
