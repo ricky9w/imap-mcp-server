@@ -20,7 +20,7 @@ working in this repository.
   HTTP-vs-stdio tool differences (inline attachments, Drafts-only drafts).
   In optional Access mode require a verified assertion on every MCP request,
   map a user email to its active grant, and require a bearer token for service
-  identities. Keep public-key refresh outside the MCP process (see README).
+  identities. Resolve signing keys only from the configured team domain (see README).
   Agent tokens (`imcp_…`, hashed, `TokenStore`) and the admin token are never
   interchangeable; the `admin` tool group is never grantable over HTTP. The
   audit log (`AuditLog`) records whitelisted argument summaries only
@@ -125,8 +125,8 @@ touch `src/`. Keep the suite green (currently 582 tests).
    (b) updating `README.md`, and (c) adding/adjusting tests. Prefer additive,
    backward-compatible changes (new optional fields) over breaking ones.
 4. **Credentials stay local.** Do not add telemetry, analytics, crash reporting,
-   or any third-party network calls. The only outbound connections are to the
-   user's own IMAP/SMTP servers.
+   or unrelated network calls. Limit outbound traffic to the configured IMAP/SMTP
+   servers and, in Access mode, the configured team's HTTPS public signing-key endpoint.
 5. **Validate and sanitize file paths** for attachment upload/download (already
    done via `path.basename`); keep writes confined to the configured directories.
 

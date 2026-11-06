@@ -426,38 +426,25 @@ configuration. A stdio-to-HTTP bridge still authenticates its outgoing HTTP conn
    callbacks you use (localhost and loopback for desktop CLIs, exact redirect URIs for hosted
    clients). For existing scripts, keep the specific Service Auth policy and its 401 response
    setting. [Cloudflare Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)
-2. Set these variables on the **serve** process and restart it after provisioning the key file.
+2. Set these variables on the **serve** process and restart it.
 
    ```ini
    IMAP_MCP_ACCESS_TEAM_DOMAIN=your-team.cloudflareaccess.com
    IMAP_MCP_ACCESS_AUD=audience-tag-of-the-mcp-application
-   IMAP_MCP_ACCESS_JWKS_FILE=/etc/imap-mcp/access-keys.json
    ```
 
-   The deployment host fetches the team's public signing keys. Keep the key file readable by
-   the service and writable only by the deployment administrator. On Debian, for example,
-   install the following executable as `/etc/cron.hourly/imap-mcp-access-keys`, substitute
-   the team domain, and run it once before starting the server. It requires curl and jq.
-   The server picks up replacements on the next request. It rejects missing, invalid or
-   more-than-24-hour-old keys, so monitor the refresh job.
-
-   ```bash
-   #!/bin/bash
-   set -euo pipefail
-   cd /etc/imap-mcp
-   tmp=$(mktemp .access-keys.XXXXXX)
-   trap 'rm -f "$tmp"' EXIT
-   curl -fsS --max-time 20 https://your-team.cloudflareaccess.com/cdn-cgi/access/certs |
-     jq -e '{keys: [.keys[] | select(.kty == "RSA" and .kid and .n and .e)]} | select(.keys | length > 0)' > "$tmp"
-   chmod 0644 "$tmp"
-   mv -f "$tmp" access-keys.json
-   ```
+   Allow outbound HTTPS from the server to the configured team domain. The server fetches
+   public signing keys from `/cdn-cgi/access/certs` on demand and caches them across requests.
+   When keys rotate, the verifier refreshes the cache automatically. It sends no credentials
+   or mailbox data with this request.
 
 3. Open **Agent Access → Grant access** in the admin UI. Enter a name, the Cloudflare login
    email and its permitted tools. An email grant has no shared secret. It can also be created
    through `POST /api/tokens` with `{"name":"My login","accessEmail":"me@example.com","preset":"readonly"}`.
-   Tool changes and revocation take effect on the next MCP request. All clients using the
-   same login share this grant across the configured mailboxes.
+   To use your personal identity across agents, create one grant for your own login email
+   and sign in with that account in each client. Each client gets its own OAuth session.
+   They all use your one tool list across the configured mailboxes. Editing or revoking
+   this grant takes effect for every client on its next MCP request.
 4. Add `https://mail.example.com/mcp` to an OAuth-capable HTTP MCP client and choose its
    login action. For example, run `claude mcp add --transport http imap https://mail.example.com/mcp`
    and authenticate from `/mcp`. An unauthenticated HTTP POST with
@@ -467,7 +454,7 @@ configuration. A stdio-to-HTTP bridge still authenticates its outgoing HTTP conn
 With this mode enabled, every origin request to `POST /mcp` requires an assertion for the
 MCP audience. Unattended scripts send their Access service ID and secret and their existing
 `Authorization: Bearer imcp_…` to the edge. The admin UI/API still requires the admin token.
-To return to agent-token-only authentication at the origin, unset all three Access variables
+To return to agent-token-only authentication at the origin, unset both Access variables
 and restart the service.
 
 ### Connect a client

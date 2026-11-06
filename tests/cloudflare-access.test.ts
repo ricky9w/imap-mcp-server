@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { createServeApp } from '../src/http/serve.js';
 import { configuredAccess } from '../src/http/access.js';
 import { TokenStore } from '../src/services/token-store.js';
@@ -12,18 +14,23 @@ import { AuditLog } from '../src/services/audit-log.js';
 
 const issuer = 'https://test-team.cloudflareaccess.com';
 const audience = 'mail-mcp-audience';
+const localFetch = globalThis.fetch;
+const signingKeysUrl = issuer + '/cdn-cgi/access/certs';
 const user = { type: 'app', email: 'Reader@example.com', sub: 'user-1' };
 const admin = { authorization: 'Bearer test-admin-with-enough-characters' };
 const keys = await generateKeyPair('RS256');
 
-function sign(claims = {}, key = keys.privateKey) {
+function sign(claims = {}, key = keys.privateKey, kid = 'test-key') {
   return new SignJWT({ ...user, iss: issuer, aud: [audience], exp: Math.floor(Date.now() / 1000) + 600, ...claims })
-    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).sign(key);
+    .setProtectedHeader({ alg: 'RS256', kid }).sign(key);
 }
 
 describe('Cloudflare Access /mcp', () => {
   let dir: string;
-  let file: string;
+  const fetchKeys = vi.fn(async (url: string) => {
+    expect(url).toBe(signingKeysUrl);
+    return Response.json({ keys: [{ ...await exportJWK(keys.publicKey), kid: 'test-key' }] });
+  });
   let server: Server;
   let base: string;
   let store: TokenStore;
@@ -31,11 +38,9 @@ describe('Cloudflare Access /mcp', () => {
 
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), 'imap-access-'));
-    file = join(dir, 'certs.json');
-    await writeFile(file, JSON.stringify({ keys: [{ ...await exportJWK(keys.publicKey), kid: 'test-key' }] }));
+    vi.stubGlobal('fetch', fetchKeys);
     vi.stubEnv('IMAP_MCP_ACCESS_TEAM_DOMAIN', 'test-team.cloudflareaccess.com');
     vi.stubEnv('IMAP_MCP_ACCESS_AUD', audience);
-    vi.stubEnv('IMAP_MCP_ACCESS_JWKS_FILE', file);
     vi.stubEnv('IMAP_MCP_WIZARD_TOKEN', admin.authorization.slice(7));
     store = new TokenStore(join(dir, 'grants.json'));
     audit = new AuditLog(join(dir, 'audit.log'));
@@ -49,11 +54,12 @@ describe('Cloudflare Access /mcp', () => {
     await new Promise<void>(resolve => server.close(() => resolve()));
     await store.flush();
     await rm(dir, { recursive: true, force: true });
+    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
 
   function post(path: string, body: unknown, headers: Record<string, string>, method = 'POST') {
-    return fetch(base + path, {
+    return localFetch(base + path, {
       method, headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', ...headers },
       body: JSON.stringify(body),
     });
@@ -63,7 +69,7 @@ describe('Cloudflare Access /mcp', () => {
   it('uses only the verified login’s grant, with live edits, revocation and separate admin auth', async () => {
     const headers = { 'cf-access-jwt-assertion': await sign(), authorization: 'Bearer opaque-client-token' };
     expect((await list(headers)).status).toBe(403);
-    expect((await fetch(base + '/api/tokens', { headers })).status).toBe(401);
+    expect((await localFetch(base + '/api/tokens', { headers })).status).toBe(401);
     const body = { name: 'Reader', accessEmail: 'READER@example.com', tools: ['imap_search_emails'] };
     const created = await post('/api/tokens', body, admin);
     expect(created.status).toBe(201);
@@ -80,6 +86,26 @@ describe('Cloudflare Access /mcp', () => {
     expect(await names()).toEqual(['imap_mark_as_read']);
     expect((await post(grant + '/revoke', {}, admin)).status).toBe(200);
     expect((await list(headers)).status).toBe(403);
+  });
+
+  it('shares a single email grant between independent MCP clients', async () => {
+    const email = 'owner@example.com';
+    const grant = await store.grantAccess('Owner', email, ['imap_search_emails']);
+    const clients = ['laptop', 'desktop'].map(name => new Client({ name, version: '1.0' }));
+    try {
+      for (const [i, client] of clients.entries()) {
+        const assertion = await sign({ email, sub: 'owner', jti: `session-${i}` });
+        await client.connect(new StreamableHTTPClientTransport(new URL('/mcp', base), {
+          fetch: localFetch, requestInit: { headers: { 'cf-access-jwt-assertion': assertion } },
+        }));
+      }
+      const tools = () => Promise.all(clients.map(async client => (await client.listTools()).tools.map(t => t.name)));
+      expect(await tools()).toEqual([['imap_search_emails'], ['imap_search_emails']]);
+      await store.update(grant.id, { tools: ['imap_mark_as_read'] });
+      expect(await tools()).toEqual([['imap_mark_as_read'], ['imap_mark_as_read']]);
+    } finally {
+      await Promise.all(clients.map(client => client.close()));
+    }
   });
 
   it('requires both the Access service assertion and the script’s original bearer', async () => {
@@ -102,18 +128,37 @@ describe('Cloudflare Access /mcp', () => {
     }
   });
 
-  it('requires all Access settings and reloads refreshed signing keys', async () => {
+  it('requires the configured team domain and audience together', () => {
     expect(configuredAccess({})).toBeUndefined();
     expect(() => configuredAccess({ IMAP_MCP_ACCESS_AUD: audience })).toThrow();
+    expect(() => configuredAccess({ IMAP_MCP_ACCESS_TEAM_DOMAIN: 'test-team.cloudflareaccess.com' })).toThrow();
+    expect(() => configuredAccess({ IMAP_MCP_ACCESS_TEAM_DOMAIN: 'attacker.example', IMAP_MCP_ACCESS_AUD: audience })).toThrow();
+  });
+
+  it('caches public keys and refreshes them when a rotated signing key appears', async () => {
     const verify = configuredAccess(process.env)!;
     const assertion = await sign();
-    expect(await verify(assertion)).toMatchObject({ email: 'reader@example.com' });
-    const stale = new Date(Date.now() - 2 * 86400000);
-    await utimes(file, stale, stale);
-    expect(await verify(assertion)).toBeUndefined();
-    const rotated = await generateKeyPair('RS256');
-    await writeFile(file, JSON.stringify({ keys: [{ ...await exportJWK(rotated.publicKey), kid: 'test-key' }] }));
-    expect(await verify(assertion)).toBeUndefined();
-    expect(await verify(await sign({}, rotated.privateKey))).toMatchObject({ email: 'reader@example.com' });
+    fetchKeys.mockClear();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      expect(await verify(assertion)).toMatchObject({ kind: 'user' });
+      expect(await verify(assertion)).toMatchObject({ kind: 'user' });
+      expect(fetchKeys).toHaveBeenCalledTimes(1);
+
+      const rotated = await generateKeyPair('RS256');
+      const rotatedKey = { ...await exportJWK(rotated.publicKey), kid: 'rotated' };
+      fetchKeys.mockResolvedValueOnce(Response.json({ keys: [rotatedKey] }));
+      vi.setSystemTime(Date.now() + 60_000); // Beyond the remote resolver's refetch cooldown.
+      expect(await verify(await sign({}, rotated.privateKey, 'rotated'))).toMatchObject({ kind: 'user' });
+      expect(await verify(assertion)).toBeUndefined();
+      expect(fetchKeys).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects assertions when the trusted key endpoint is unavailable', async () => {
+    fetchKeys.mockRejectedValueOnce(new Error('unavailable'));
+    expect(await configuredAccess(process.env)!(await sign())).toBeUndefined();
   });
 });

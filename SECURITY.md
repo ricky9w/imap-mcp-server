@@ -19,8 +19,8 @@ control**.
   - **Managed OAuth** can be enabled for a dedicated Cloudflare Access application on
     `/mcp`. In this mode every request needs a signed assertion for the configured issuer
     and audience. An authenticated email needs an explicit tool grant. Service assertions
-    still require an agent token. The deployment host refreshes the public verification
-    keys. See [setup and key rotation](README.md#cloudflare-access-managed-oauth).
+    still require an agent token. The MCP server caches public signing keys from the
+    configured Cloudflare team and refreshes them on demand. See [setup and key rotation](README.md#cloudflare-access-managed-oauth).
   - **Never grantable over HTTP:** the account tools, which could point stored
     credentials at another host, and `imap_disconnect`.
   - **The admin token** protects every other path, i.e. the admin UI and API.
@@ -42,9 +42,9 @@ control**.
   anyone who can read both files can read your credentials.
 - **No telemetry.** The server collects no analytics, usage data, or crash
   reports.
-- **No third-party data sharing.** The only outbound network connections are to
-  the IMAP and SMTP servers **you** configure. Email content and credentials are
-  never sent anywhere else.
+- **No third-party data sharing.** The server connects to the IMAP and SMTP servers **you** configure.
+  Enabling Managed OAuth also allows HTTPS requests to the configured Cloudflare team's
+  public signing-key endpoint. These requests carry no email content or credentials.
 - **Your MCP client sees your mail.** Email content returned by these tools is
   passed to whichever MCP client/LLM you connect (e.g. Claude, ChatGPT, Cursor).
   Review that client's own privacy terms; treat any connected model as a party
