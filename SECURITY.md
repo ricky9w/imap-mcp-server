@@ -16,6 +16,11 @@ control**.
   - **Agent tokens** (`imcp_…`) authenticate `POST /mcp`. Only their SHA-256
     is stored (`~/.imap-mcp/tokens.json`, 0600). Each token grants an
     explicit tool list, and revoking it takes effect on the next request.
+  - **Managed OAuth** can be enabled for a dedicated Cloudflare Access application on
+    `/mcp`. In this mode every request needs a signed assertion for the configured issuer
+    and audience. An authenticated email needs an explicit tool grant. Service assertions
+    still require an agent token. The deployment host refreshes the public verification
+    keys. See [setup and key rotation](README.md#cloudflare-access-managed-oauth).
   - **Never grantable over HTTP:** the account tools, which could point stored
     credentials at another host, and `imap_disconnect`.
   - **The admin token** protects every other path, i.e. the admin UI and API.

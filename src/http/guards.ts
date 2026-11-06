@@ -1,6 +1,7 @@
 import type { Request, RequestHandler } from 'express';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { TokenStore } from '../services/token-store.js';
+import type { AccessVerifier } from './access.js';
+import { TokenStore, type AgentTokenInfo } from '../services/token-store.js';
 import type { AuditLog } from '../services/audit-log.js';
 import { effectiveTools } from '../tools/policy.js';
 
@@ -59,22 +60,34 @@ export function originAllowlist(allowedOrigins: string[]): RequestHandler {
 }
 
 /**
- * Agent-token authentication. A valid, unrevoked `imcp_…` token sets
- * req.auth, which the SDK hands to tool handlers as extra.authInfo; its scopes
- * are the token's effective tools. The admin token is not an agent token and
- * is rejected here like any other unknown value.
+ * Resolve each request to a live grant, then pass its effective tools to the SDK.
+ * Cloudflare manages the OAuth discovery and token exchange at the public edge.
  */
-export function bearerAuth(tokenStore: TokenStore, auditLog: AuditLog): RequestHandler {
-  return (req, res, next) => {
+export function agentAuth(tokenStore: TokenStore, auditLog: AuditLog, verifyAccess?: AccessVerifier): RequestHandler {
+  return async (req, res, next) => {
     const presented = /^Bearer\s+(\S+)\s*$/i.exec(req.headers.authorization ?? '')?.[1] ?? '';
-    const token = presented ? tokenStore.verify(presented) : undefined;
+    const assertion = req.get('Cf-Access-Jwt-Assertion');
+    const identity = verifyAccess && assertion ? await verifyAccess(assertion) : undefined;
+    // With Access enabled, a direct origin request cannot use a local token to skip Access.
+    // A service assertion still needs the script's own token and its individual permissions.
+    let token: AgentTokenInfo | undefined;
+    if (identity?.kind === 'user') {
+      token = tokenStore.forAccessEmail(identity.email);
+      if (!token) {
+        auditLog.record({ event: 'auth_failed', outcome: 'denied', ip: req.ip, args: { accessEmail: identity.email } });
+        res.status(403).json(jsonRpcError(-32001, 'This Access login has no active mail tool grant.'));
+        return;
+      }
+    } else if (!verifyAccess || identity?.kind === 'service') {
+      token = tokenStore.verify(presented);
+    }
     if (!token) {
       const tokenId = TokenStore.idOf(presented);
       auditLog.record({ event: 'auth_failed', outcome: 'denied', ip: req.ip, ...(tokenId ? { tokenId } : {}) });
-      res
-        .status(401)
-        .set('WWW-Authenticate', 'Bearer realm="imap-mcp"')
-        .json(jsonRpcError(-32001, 'Unauthorized: send a valid agent token as "Authorization: Bearer imcp_…".'));
+      const message = verifyAccess && !identity
+        ? 'Unauthorized: a valid Cloudflare Access assertion is required.'
+        : 'Unauthorized: send a valid agent token as "Authorization: Bearer imcp_…".';
+      res.status(401).set('WWW-Authenticate', 'Bearer realm="imap-mcp"').json(jsonRpcError(-32001, message));
       return;
     }
 

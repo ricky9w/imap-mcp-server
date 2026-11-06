@@ -98,7 +98,7 @@ async function viewTokens() {
         return;
     }
     if (tokens.length === 0) {
-        table.replaceChildren(el('p', { className: 'text-gray-500 text-center py-8' }, 'No agent tokens yet.'));
+        table.replaceChildren(el('p', { className: 'text-gray-500 text-center py-8' }, 'No agents have access yet.'));
         return;
     }
 
@@ -131,7 +131,7 @@ async function viewTokens() {
         }
 
         return el('tr', { className: 'border-b align-top' },
-            el('td', { className: 'py-3' }, token.name, el('div', { className: 'text-xs text-gray-500 font-mono' }, token.id)),
+            el('td', { className: 'py-3' }, token.name, el('div', { className: 'text-xs text-gray-500 font-mono' }, token.accessEmail || token.id)),
             el('td', { className: 'py-3' }, el('div', { className: 'flex flex-wrap gap-1' }, ...groupPills)),
             el('td', { className: 'py-3 text-sm' }, formatDate(token.createdAt)),
             el('td', { className: 'py-3 text-sm' }, lastUsed),
@@ -142,11 +142,11 @@ async function viewTokens() {
 }
 
 async function revokeToken(token) {
-    if (!confirm(`Revoke the token "${token.name}"? Agents using it lose access immediately.`)) return;
+    if (!confirm(`Revoke access for "${token.name}"?`)) return;
     try {
         await api(`/api/tokens/${encodeURIComponent(token.id)}/revoke`, { method: 'POST', body: '{}' });
     } catch (error) {
-        alert('Failed to revoke token: ' + error.message);
+        alert('Failed to revoke access: ' + error.message);
     }
     viewTokens();
 }
@@ -193,22 +193,32 @@ function updateReadSendWarning() {
 
 function showTokenForm(token) {
     editingTokenId = token ? token.id : null;
-    document.getElementById('tokenFormTitle').textContent = token ? 'Edit agent token' : 'New agent token';
+    document.getElementById('tokenFormTitle').textContent = token ? 'Edit agent access' : 'Grant agent access';
     document.getElementById('tokenName').value = token ? token.name : '';
+    document.getElementById('accessEmailField').classList.toggle('hidden', !catalog.accessEnabled || (token && !token.accessEmail));
+    const email = document.getElementById('accessEmail');
+    email.value = token?.accessEmail || '';
+    email.readOnly = Boolean(token);
     document.getElementById('tokenFormError').classList.add('hidden');
     setSelectedTools(token ? token.tools : catalog.presets.readonly || []);
     showAdminView('tokenForm');
 }
 
 async function saveToken() {
-    const body = JSON.stringify({ name: document.getElementById('tokenName').value, tools: selectedTools() });
+    const email = document.getElementById('accessEmail').value.trim();
+    const body = JSON.stringify({
+        name: document.getElementById('tokenName').value,
+        tools: selectedTools(),
+        ...(!editingTokenId && email ? { accessEmail: email } : {})
+    });
     try {
         if (editingTokenId) {
             await api(`/api/tokens/${encodeURIComponent(editingTokenId)}`, { method: 'PATCH', body });
             viewTokens();
         } else {
             const result = await api('/api/tokens', { method: 'POST', body });
-            showTokenCreated(result.secret);
+            if (result.secret) showTokenCreated(result.secret);
+            else viewTokens();
         }
     } catch (error) {
         document.getElementById('tokenFormErrorMessage').textContent = error.message;

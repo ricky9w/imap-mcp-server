@@ -7,7 +7,8 @@ import crypto from 'crypto';
 export interface AgentToken {
   id: string;
   name: string;
-  hash: string;
+  hash?: string;
+  accessEmail?: string;
   tools: string[];
   createdAt: string;
   revokedAt?: string;
@@ -56,22 +57,44 @@ export class TokenStore {
 
   /** Create a token. The returned `token` string is the only copy of the secret. */
   async create(name: string, tools: string[]): Promise<{ info: AgentTokenInfo; token: string }> {
+    const secret = crypto.randomBytes(32).toString('base64url');
+    const info = await this.add(name, tools, { hash: hashSecret(secret) });
+    return { info, token: `imcp_${info.id}_${secret}` };
+  }
+
+  /** An Access login gets the same editable tool list, without a bearer secret. */
+  async grantAccess(name: string, email: string, tools: string[]): Promise<AgentTokenInfo> {
+    const accessEmail = email.trim().toLowerCase();
+    if (this.forAccessEmail(accessEmail)) throw new Error('This login already has an active grant.');
+    return this.add(name, tools, { accessEmail });
+  }
+
+  forAccessEmail(email: string): AgentTokenInfo | undefined {
+    for (const record of this.tokens.values()) {
+      if (record.accessEmail === email && !record.revokedAt) return withoutHash(record);
+    }
+  }
+
+  private async add(name: string, tools: string[], credential: { hash: string } | { accessEmail: string }): Promise<AgentTokenInfo> {
     let id: string;
     do {
       id = Array.from(crypto.randomBytes(10), byte => ID_ALPHABET[byte & 31]).join('');
     } while (this.tokens.has(id));
-    const secret = crypto.randomBytes(32).toString('base64url');
-
     const record: AgentToken = {
       id,
       name,
-      hash: hashSecret(secret),
+      ...credential,
       tools: [...tools],
       createdAt: new Date().toISOString(),
     };
     this.tokens.set(id, record);
-    await this.save();
-    return { info: withoutHash(record), token: `imcp_${id}_${secret}` };
+    try {
+      await this.save();
+    } catch (error) {
+      this.tokens.delete(id);
+      throw error;
+    }
+    return withoutHash(record);
   }
 
   async update(id: string, updates: { name?: string; tools?: string[] }): Promise<AgentTokenInfo> {
@@ -99,7 +122,7 @@ export class TokenStore {
   verify(presented: string): AgentTokenInfo | undefined {
     const match = TOKEN_PATTERN.exec(presented);
     const record = match ? this.tokens.get(match[1]) : undefined;
-    if (!match || !record) {
+    if (!match || !record?.hash) {
       return undefined;
     }
     const expected = Buffer.from(record.hash, 'hex');

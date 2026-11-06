@@ -18,6 +18,9 @@ working in this repository.
   every call audited), and the wizard in admin mode for all other paths.
   `guards.ts` holds bearer/Host/Origin checks, `overrides.ts` the only
   HTTP-vs-stdio tool differences (inline attachments, Drafts-only drafts).
+  In optional Access mode require a verified assertion on every MCP request,
+  map a user email to its active grant, and require a bearer token for service
+  identities. Keep public-key refresh outside the MCP process (see README).
   Agent tokens (`imcp_…`, hashed, `TokenStore`) and the admin token are never
   interchangeable; the `admin` tool group is never grantable over HTTP. The
   audit log (`AuditLog`) records whitelisted argument summaries only

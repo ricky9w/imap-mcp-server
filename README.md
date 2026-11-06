@@ -368,8 +368,8 @@ The same port serves two things:
 
 | Path | Purpose | Credential |
 | --- | --- | --- |
-| `POST /mcp` | the MCP endpoint | an **agent token** |
-| every other path | the setup wizard in admin mode: accounts, **Agent Tokens**, **Audit Log** | the **admin token** |
+| `POST /mcp` | the MCP endpoint | an **agent token** or a [Cloudflare Access login](#cloudflare-access-managed-oauth) |
+| every other path | the setup wizard in admin mode: accounts, **Agent Access**, **Audit Log** | the **admin token** |
 
 The admin token is `IMAP_MCP_WIZARD_TOKEN` if you set it (at least 16
 characters). Otherwise it is generated once into `~/.imap-mcp/admin-token`
@@ -378,7 +378,7 @@ Open `http://127.0.0.1:8765/?token=<admin token>` in a browser to log in.
 
 ### Create an agent token
 
-You can create a token in **Agent Tokens** in the admin UI, or through the API:
+You can create a token in **Agent Access** in the admin UI, or through the API:
 
 ```bash
 ADMIN=$(cat ~/.imap-mcp/admin-token)
@@ -411,6 +411,64 @@ curl -s -X POST http://127.0.0.1:8765/api/tokens/<id>/revoke -H "Authorization: 
 
 A token that can both read and send mail can be talked into forwarding your
 mail by a crafted email. Prefer `assistant` and send drafts yourself.
+
+### Cloudflare Access Managed OAuth
+
+For a remote MCP client, Access handles OAuth discovery, browser login, PKCE and token refresh.
+The client sends its OAuth bearer to Access. Access sends a signed application assertion to
+`POST /mcp`, where the server checks the issuer, audience, expiry and signature and looks up
+the login email's tool grants. Local stdio clients start a subprocess and use local mailbox
+configuration. A stdio-to-HTTP bridge still authenticates its outgoing HTTP connection.
+
+1. Give `mail.example.com/mcp` its own self-hosted Access application and audience (AUD).
+   Protect the rest of the host with the admin site's Access application. On the MCP application
+   allow your users, enable Managed OAuth and dynamic client registration, and allow the client
+   callbacks you use (localhost and loopback for desktop CLIs, exact redirect URIs for hosted
+   clients). For existing scripts, keep the specific Service Auth policy and its 401 response
+   setting. [Cloudflare Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)
+2. Set these variables on the **serve** process and restart it after provisioning the key file.
+
+   ```ini
+   IMAP_MCP_ACCESS_TEAM_DOMAIN=your-team.cloudflareaccess.com
+   IMAP_MCP_ACCESS_AUD=audience-tag-of-the-mcp-application
+   IMAP_MCP_ACCESS_JWKS_FILE=/etc/imap-mcp/access-keys.json
+   ```
+
+   The deployment host fetches the team's public signing keys. Keep the key file readable by
+   the service and writable only by the deployment administrator. On Debian, for example,
+   install the following executable as `/etc/cron.hourly/imap-mcp-access-keys`, substitute
+   the team domain, and run it once before starting the server. It requires curl and jq.
+   The server picks up replacements on the next request. It rejects missing, invalid or
+   more-than-24-hour-old keys, so monitor the refresh job.
+
+   ```bash
+   #!/bin/bash
+   set -euo pipefail
+   cd /etc/imap-mcp
+   tmp=$(mktemp .access-keys.XXXXXX)
+   trap 'rm -f "$tmp"' EXIT
+   curl -fsS --max-time 20 https://your-team.cloudflareaccess.com/cdn-cgi/access/certs |
+     jq -e '{keys: [.keys[] | select(.kty == "RSA" and .kid and .n and .e)]} | select(.keys | length > 0)' > "$tmp"
+   chmod 0644 "$tmp"
+   mv -f "$tmp" access-keys.json
+   ```
+
+3. Open **Agent Access → Grant access** in the admin UI. Enter a name, the Cloudflare login
+   email and its permitted tools. An email grant has no shared secret. It can also be created
+   through `POST /api/tokens` with `{"name":"My login","accessEmail":"me@example.com","preset":"readonly"}`.
+   Tool changes and revocation take effect on the next MCP request. All clients using the
+   same login share this grant across the configured mailboxes.
+4. Add `https://mail.example.com/mcp` to an OAuth-capable HTTP MCP client and choose its
+   login action. For example, run `claude mcp add --transport http imap https://mail.example.com/mcp`
+   and authenticate from `/mcp`. An unauthenticated HTTP POST with
+   `Accept: application/json, text/event-stream` should return 401 with a Bearer
+   `resource_metadata` challenge from Access. After login, check the list of tools.
+
+With this mode enabled, every origin request to `POST /mcp` requires an assertion for the
+MCP audience. Unattended scripts send their Access service ID and secret and their existing
+`Authorization: Bearer imcp_…` to the edge. The admin UI/API still requires the admin token.
+To return to agent-token-only authentication at the origin, unset all three Access variables
+and restart the service.
 
 ### Connect a client
 

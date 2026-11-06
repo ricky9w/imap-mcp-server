@@ -9,7 +9,8 @@ import type { TokenStore } from '../services/token-store.js';
 import type { SmtpService } from '../services/smtp-service.js';
 import { PACKAGE_VERSION } from '../utils/version.js';
 import { DENIED_META_KEY } from '../utils/denied.js';
-import { bearerAuth, jsonRpcError, originAllowlist } from './guards.js';
+import type { AccessVerifier } from './access.js';
+import { agentAuth, jsonRpcError, originAllowlist } from './guards.js';
 
 /**
  * Thrown by a handler to refuse a call by policy: audited as `denied`, not
@@ -28,6 +29,7 @@ export interface McpEndpointOptions {
   definitions: readonly ToolDefinition[];
   smtpService: SmtpService;
   tokenStore: TokenStore;
+  verifyAccess?: AccessVerifier;
   auditLog: AuditLog;
   allowedOrigins: string[];
   maxBodyBytes: number;
@@ -80,7 +82,7 @@ export function createMcpRouter(options: McpEndpointOptions): Router {
   router.post(
     '/mcp',
     originAllowlist(options.allowedOrigins),
-    bearerAuth(tokenStore, auditLog),
+    agentAuth(tokenStore, auditLog, options.verifyAccess),
     express.json({ limit: options.maxBodyBytes }),
     async (req, res) => {
       const auth = (req as Request & { auth: AuthInfo }).auth;

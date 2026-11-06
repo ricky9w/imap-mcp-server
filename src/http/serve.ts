@@ -10,6 +10,7 @@ import { AuditLog } from '../services/audit-log.js';
 import { WebUIServer, adminTokenFile } from '../web/server.js';
 import { createMcpRouter } from './mcp.js';
 import { httpToolDefinitions, maxUploadSize } from './overrides.js';
+import { configuredAccess } from './access.js';
 import { hostGuard, parseList } from './guards.js';
 
 export interface ServeOptions {
@@ -54,6 +55,7 @@ export function createServeApp(
   options: { host: string; port: number; tokenStore: TokenStore; auditLog: AuditLog }
 ): express.Express {
   const { tokenStore, auditLog } = options;
+  const verifyAccess = configuredAccess(process.env);
   const definitions = httpToolDefinitions(collectToolDefinitions(services), services);
   const allowedOrigins = parseList(process.env.IMAP_MCP_ALLOWED_ORIGINS);
 
@@ -65,6 +67,7 @@ export function createServeApp(
     definitions,
     smtpService: services.smtpService,
     tokenStore,
+    verifyAccess,
     auditLog,
     allowedOrigins,
     // Base64 attachments up to the upload limit, plus room for the JSON-RPC envelope.
@@ -76,7 +79,7 @@ export function createServeApp(
     imapService: services.imapService,
     smtpService: services.smtpService,
     bindHost: options.host,
-    admin: { tokenStore, auditLog, catalog: toolCatalog(definitions), allowedOrigins },
+    admin: { tokenStore, auditLog, catalog: toolCatalog(definitions), allowedOrigins, accessEnabled: Boolean(verifyAccess) },
   });
   app.use(admin.getApp());
   return app;
@@ -98,7 +101,7 @@ export async function startServe(argv: string[]): Promise<void> {
   const base = `http://${options.host.includes(':') ? `[${options.host}]` : options.host}:${port}`;
   const adminToken = process.env.IMAP_MCP_WIZARD_TOKEN?.trim() ? 'IMAP_MCP_WIZARD_TOKEN' : adminTokenFile();
   console.log(`IMAP MCP Server listening on ${base}`);
-  console.log(`  MCP endpoint: ${base}/mcp (Authorization: Bearer <agent token>)`);
+  console.log(`  MCP endpoint: ${base}/mcp`);
   console.log(`  Admin UI/API: ${base}/ (admin token: ${adminToken})`);
 
   let stopping = false;

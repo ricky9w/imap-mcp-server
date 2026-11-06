@@ -23,6 +23,7 @@ const MIN_TOKEN_LENGTH = 16;
 
 /** What `serve` adds to the wizard to run it as the long-lived admin backend. */
 export interface AdminDeps {
+  accessEnabled?: boolean;
   tokenStore: TokenStore;
   auditLog: AuditLog;
   /** The tools agent tokens can be granted (see toolCatalog()). */
@@ -609,7 +610,7 @@ export class WebUIServer {
 
   // Agent tokens and the audit trail. Grants are checked against the catalog,
   // so unknown tools and the admin group can never end up on a token.
-  private setupAdminRoutes({ tokenStore, auditLog, catalog }: AdminDeps): void {
+  private setupAdminRoutes({ tokenStore, auditLog, catalog, accessEnabled }: AdminDeps): void {
     const grantable = new Set(catalog.tools.map(tool => tool.name));
 
     const parseTokenBody = (body: any, creating: boolean): { name?: string; tools?: string[] } | { error: string } => {
@@ -645,7 +646,7 @@ export class WebUIServer {
     };
 
     this.app.get('/api/tools/catalog', (req, res) => {
-      res.json(catalog);
+      res.json(accessEnabled ? { ...catalog, accessEnabled } : catalog);
     });
 
     this.app.get('/api/tokens', (req, res) => {
@@ -658,7 +659,24 @@ export class WebUIServer {
         res.status(400).json({ success: false, error: parsed.error });
         return;
       }
+      const email = req.body?.accessEmail;
+      if (email !== undefined) {
+        if (!accessEnabled || typeof email !== 'string' || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          res.status(400).json({ success: false, error: 'An OAuth grant requires configured Access and a valid login email.' });
+          return;
+        }
+        if (tokenStore.forAccessEmail(email.toLowerCase())) {
+          res.status(409).json({ success: false, error: 'This login already has an active grant.' });
+          return;
+        }
+      }
       try {
+        if (email !== undefined) {
+          const info = await tokenStore.grantAccess(parsed.name!, email, parsed.tools!);
+          auditLog.record({ event: 'token_created', tokenId: info.id, tokenName: info.name, ip: req.ip, args: { accessEmail: info.accessEmail, tools: info.tools } });
+          res.status(201).json({ success: true, token: info });
+          return;
+        }
         const { info, token } = await tokenStore.create(parsed.name!, parsed.tools!);
         auditLog.record({ event: 'token_created', tokenId: info.id, tokenName: info.name, ip: req.ip, args: { tools: info.tools } });
         // The only response that ever carries the full token.
@@ -669,6 +687,10 @@ export class WebUIServer {
     });
 
     this.app.patch('/api/tokens/:id', async (req, res) => {
+      if (req.body?.accessEmail !== undefined) {
+        res.status(400).json({ success: false, error: 'To change the login email, revoke the grant and create a new one.' });
+        return;
+      }
       if (!tokenStore.get(req.params.id)) {
         res.status(404).json({ success: false, error: 'Token not found' });
         return;
